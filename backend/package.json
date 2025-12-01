@@ -1,0 +1,17 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "LocalDev Backend",
+  "main": "main.py",
+  "scripts": {
+    "start": "uvicorn main:app --host 127.0.0.1 --port 8000 --reload",
+    "build": "echo \"No build step for Python backend\""
+  },
+  "keywords": [
+    "fastapi",
+    "ollama",
+    "lancedb"
+  ],
+  "author": "LocalDev Team",
+  "license": "MIT"
+}
