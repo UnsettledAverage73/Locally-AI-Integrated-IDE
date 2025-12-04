@@ -1,12 +1,16 @@
 {
-  "name": "local-ai-ide",
+  "name": "frontend",
   "version": "1.0.0",
-  "description": "**Tagline:** The Privacy-First, Offline-Capable AI IDE.",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
+    "start": "electron .",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "electron": "^39.2.5"
+  }
 }
