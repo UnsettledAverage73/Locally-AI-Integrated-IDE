@@ -1,0 +1,47 @@
+You are an expert Senior Frontend Engineer specializing in building developer tools and IDEs.
+​Task: Build the complete frontend for "LocalDev," a locally running AI-integrated IDE.
+Tech Stack:
+​Framework: React + Vite (TypeScript)
+​Styling: Tailwind CSS (Dark Mode default)
+​Icons: lucide-react
+​Editor: @monaco-editor/react
+​Networking: Axios
+​State Management: React Context or simple State (keep it lightweight)
+​Project Goal: Create a VS Code-like interface with three main sections:
+​Left Sidebar (File Explorer): A recursive file tree showing folders and files.
+​Center (Code Editor): A full-featured Monaco editor instance.
+​Right Sidebar (AI Assistant): A chat interface for RAG-based code assistance.
+​1. API Contract (Backend is running on http://localhost:8000)
+​You must strictly connect to these FastAPI endpoints:
+​POST /fs/read-directory: Input { path: string }. Returns { entries: [{ name, path, isDirectory }] }.
+​POST /fs/read-file: Input { path: string }. Returns { content: string }.
+​POST /fs/write-file: Input { path: string, content: string }. Returns { status: "success" }.
+​POST /rag/index: Input { file_path: string, content: string }. Returns { status: "indexed" }.
+​POST /ollama/chat: Input { model: "llama3", messages: [{role, content}] }. Returns { content: string }.
+​2. Functional Requirements
+​A. File Explorer (Sidebar)
+​On load, fetch the root directory (start with ./ or a default project path).
+​Recursively fetch subdirectories when a folder is clicked (toggle expand/collapse).
+​When a file is clicked, fetch its content and load it into the Editor.
+​Use distinct icons for Folders (open/closed) and Files.
+​B. The Editor (Center)
+​Use @monaco-editor/react.
+​Dark theme (vs-dark).
+​Auto-Save / Manual Save: Implement a Ctrl+S (or Cmd+S) listener that triggers the /fs/write-file endpoint to save changes to disk.
+​"Index This File" Button: Add a prominent button in the editor header labeled "🧠 Add to Context". When clicked, send the current file content to /rag/index so the AI can learn it.
+​C. AI Chat (Right Sidebar)
+​Standard chat interface (User bubbles right, AI bubbles left).
+​Context Awareness: When sending a message, if a file is currently open, prepend "Context: Currently editing [Filename]" to the system prompt (optional, but helpful).
+​Show a loading spinner while waiting for Ollama.
+​3. Visual Style Guide
+​Theme: "Cyberpunk" or "Deep Space" (Dark grays, slate blues, slightly translucent panels).
+​Layout: Use Flexbox to ensure the Editor takes up all remaining space between the sidebars.
+​Borders: Subtle 1px borders (border-gray-700) to separate sections.
+​4. Deliverables
+​Please generate the full code for the following file structure:
+​src/api/client.ts (The Axios setup and typed API functions)
+​src/types/index.ts (TypeScript interfaces for API responses)
+​src/components/FileExplorer/FileTree.tsx (Recursive component)
+​src/components/Editor/CodeEditor.tsx (Monaco wrapper with Save logic)
+​src/components/AI/ChatPanel.tsx (Chat UI)
+​src/App.tsx (Main layout wiring everything together)
