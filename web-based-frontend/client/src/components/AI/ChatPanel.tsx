@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Sparkles } from "lucide-react";
+import { Send, Bot, User, Sparkles, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage } from "../../types";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "@/hooks/use-toast";
+import { rag } from "../../api/client";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -13,11 +15,14 @@ interface ChatPanelProps {
   activeFile: string | null;
   ollamaAvailable: boolean;
   ollamaModels: string[];
+  onClearChat: () => void;
+  hasCheckedOllama: boolean;
 }
 
-export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -32,12 +37,35 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
     setInput("");
   };
 
+  const handleClearIndex = async () => {
+    try {
+      await rag.clearIndex();
+      onClearChat();
+      toast({
+        title: "Index Cleared",
+        description: "RAG index and chat history cleared.",
+        className: "bg-green-500/10 border-green-500/50 text-green-500",
+      });
+    } catch (error) {
+      toast({
+        title: "Error Clearing Index",
+        description: "Could not clear RAG index.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-md border-l border-border">
       {/* Header */}
-      <div className="h-10 px-4 flex items-center border-b border-border bg-card/50">
-        <Sparkles className="w-4 h-4 text-accent mr-2" />
-        <span className="text-sm font-display font-bold tracking-wider text-foreground">AI ASSISTANT</span>
+      <div className="h-10 px-4 flex items-center justify-between border-b border-border bg-card/50">
+        <div className="flex items-center">
+          <Sparkles className="w-4 h-4 text-accent mr-2" />
+          <span className="text-sm font-display font-bold tracking-wider text-foreground">AI ASSISTANT</span>
+        </div>
+        <Button variant="ghost" size="icon" onClick={handleClearIndex} title="Clear AI Index and Chat">
+          <Eraser className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+        </Button>
       </div>
 
       {/* Messages */}
@@ -45,7 +73,7 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && hasCheckedOllama && (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50 space-y-2">
                 <Bot className="w-8 h-8" />
                 {ollamaAvailable ? (

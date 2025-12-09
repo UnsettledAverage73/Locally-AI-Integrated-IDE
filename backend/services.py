@@ -12,7 +12,7 @@ LANCEDB_PATH = os.getenv("LANCEDB_PATH", "./.localdev-db")
 
 class OllamaService:
     def __init__(self, host: str = OLLAMA_HOST):
-        self.client = ollama.AsyncClient(base_url=host)
+        self.client = ollama.AsyncClient(base_url=host, timeout=300.00)
 
     async def check_connection(self) -> bool:
         try:
@@ -48,8 +48,13 @@ class OllamaService:
         # The ollama.AsyncClient.chat method expects messages as a list of dictionaries with 'role' and 'content'.
         # The incoming 'messages' from ChatRequest already conform to this.
         print(f"Sending messages to Ollama chat: {messages}")
-        response = await self.client.chat(model=model, messages=messages)
-        return response["message"]["content"]
+        try:
+            response = await self.client.chat(model=model, messages=messages)
+            return response["message"]["content"]
+        except Exception as e:
+            print(f"CRITICAL OLLAMA ERROR: {str(e)}")
+            # Return a friendly error message to the UI instead of crashing
+            return f"Error: The model took too long or failed to respond. (Details: {str(e)})"
 
 class RAGService:
     def __init__(self, db_path: str = LANCEDB_PATH, ollama_service: OllamaService = None):

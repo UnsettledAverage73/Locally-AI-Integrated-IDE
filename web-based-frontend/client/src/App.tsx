@@ -24,6 +24,7 @@ function App() {
   const [isIndexing, setIsIndexing] = useState(false);
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [hasCheckedOllama, setHasCheckedOllama] = useState(false);
 
   // Initial Boot
   useEffect(() => {
@@ -32,6 +33,7 @@ function App() {
         // Check Ollama connection
         const ollamaStatus = await llm.check();
         setOllamaAvailable(ollamaStatus.available);
+        setHasCheckedOllama(true);
 
         // Fetch Ollama models
         if (ollamaStatus.available) {
@@ -45,7 +47,7 @@ function App() {
       } catch (error) {
         toast({
           title: "Connection Failed",
-          description: "Could not connect to local filesystem. Using mock mode.",
+          description: "Could not connect to local filesystem.",
           variant: "destructive",
         });
         setIsBooting(false);
@@ -126,7 +128,11 @@ function App() {
         context = ragContext;
       }
 
-      const response = await llm.chat(contextMessages);
+      const messagesToSend = context 
+        ? [{ role: "system" as const, content: `Context: ${context}` }, ...newMessages]
+        : newMessages;
+
+      const response = await llm.chat(messagesToSend);
       
       setChatMessages(prev => [
         ...prev,
@@ -212,6 +218,8 @@ function App() {
                     activeFile={activeFile}
                     ollamaAvailable={ollamaAvailable}
                     ollamaModels={ollamaModels}
+                    onClearChat={() => setChatMessages([])}
+                    hasCheckedOllama={hasCheckedOllama}
                 />
             </ResizablePanel>
         </ResizablePanelGroup>

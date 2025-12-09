@@ -100,7 +100,7 @@ export const llm = {
         await new Promise(resolve => setTimeout(resolve, 1500));
         return { content: "I analyzed your code. It looks correct, but you might want to add error handling to the `fs.readFile` call." };
     }
-    const { data } = await api.post("/ollama/chat", { model: "llama3", messages });
+    const { data } = await api.post("/ollama/chat", { model: "deepseek-coder", messages });
     return data;
   },
   generateEmbedding: async (text: string): Promise<{ embedding: number[] }> => {
