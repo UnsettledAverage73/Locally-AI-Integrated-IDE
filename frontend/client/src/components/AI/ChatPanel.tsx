@@ -83,9 +83,16 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                         <p className="mt-2">Ready to assist with your code. Open a file to provide context.</p>
                     </div>
                 ) : (
-                    <div className="text-sm text-center max-w-[200px]">
-                        <p>Ollama Not Connected.</p>
-                        <p className="mt-2">Please ensure Ollama is running to use AI features.</p>
+                    <div className="text-sm text-center max-w-[300px]">
+                        <p className="font-bold text-base text-foreground">Ollama Not Running</p>
+                        <p className="mt-2 mb-4">To enable AI features, please install and run Ollama:</p>
+                        <div className="text-left text-xs space-y-2">
+                            <p>1. Install Ollama: <a href="https://ollama.ai/download" target="_blank" rel="noopener noreferrer" className="text-accent underline">ollama.ai/download</a></p>
+                            <p>2. Start Ollama server: <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">ollama serve</code></p>
+                            <p>3. Download DeepSeek Coder: <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">ollama run deepseek-coder</code></p>
+                            <p>4. Download Nomic Embed Text: <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">ollama run nomic-embed-text</code></p>
+                        </div>
+                        <p className="mt-4">Once installed and running, refresh this page.</p>
                     </div>
                 )}
             </div>
