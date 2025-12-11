@@ -8,6 +8,26 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { rag } from "../../api/client";
 
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+
+// Custom component to render code blocks with syntax highlighting
+const CodeBlock = ({ inline, className, children, ...props }: any) => {
+  const match = /language-(\w+)/.exec(className || '');
+  return !inline && match ? (
+    <pre className={cn("p-2 rounded-md bg-zinc-800 text-white overflow-x-auto my-2", className)} {...props}>
+      <code className={className} {...props}>
+        {children}
+      </code>
+    </pre>
+  ) : (
+    <code className={cn("relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm", className)} {...props}>
+      {children}
+    </code>
+  );
+};
+
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string) => void;
@@ -117,8 +137,17 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                     <div className="mr-3 mt-0.5 shrink-0 opacity-70">
                         {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                     </div>
-                    <div className="whitespace-pre-wrap leading-relaxed">
-                        {msg.content}
+                    <div className="whitespace-pre-wrap leading-relaxed prose prose-invert max-w-none">
+                        <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]} 
+                            rehypePlugins={[rehypeHighlight]} 
+                            components={{
+                                code: CodeBlock, 
+                                a: ({ node, ...props }) => <a {...props} className="text-accent underline" target="_blank" rel="noopener noreferrer" />
+                            }}
+                        >
+                            {msg.content}
+                        </ReactMarkdown>
                     </div>
                 </div>
             </motion.div>
