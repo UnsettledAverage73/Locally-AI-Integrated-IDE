@@ -31,7 +31,7 @@ LocalDev is an Integrated Development Environment (IDE) that runs Large Language
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/UnsettledAverage73/Locally-AI-Integrated-IDE.git
    cd Local-AI-IDE
    ```
 
