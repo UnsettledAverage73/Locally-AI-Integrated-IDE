@@ -11,7 +11,7 @@ LocalDev is an Integrated Development Environment (IDE) that runs Large Language
 - **🔒 Privacy-First**: Zero telemetry. No API calls to cloud services.
 - **💻 Local AI**: Runs entirely on your machine using Ollama
 - **🧠 RAG Pipeline**: Intelligent code indexing with LanceDB
-- **💬 Chat Interface**: Context-aware AI assistant
+- **💬 Chat Interface**: Context-aware AI assistant with **Markdown Rendering and Syntax Highlighting**
 - **📝 Code Editor**: Monaco Editor with syntax highlighting
 - **📁 File Explorer**: Navigate your project files
 - **⚙️ Model Switcher**: Switch between different local LLM models
@@ -35,12 +35,26 @@ LocalDev is an Integrated Development Environment (IDE) that runs Large Language
    cd Local-AI-IDE
    ```
 
-2. Install dependencies:
+2. **Install Root Dependencies**: From the project root, run:
    ```bash
    npm install
    ```
 
-3. Start Ollama service (if not already running):
+3. **Install Frontend Dependencies**: Navigate to the `frontend` directory and run:
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+4. **Install Backend Dependencies**: Navigate to the `backend` directory, create and activate a Python virtual environment, then install dependencies:
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+5. Start Ollama service (if not already running):
    ```bash
    ollama serve
    ```
@@ -49,13 +63,14 @@ LocalDev is an Integrated Development Environment (IDE) that runs Large Language
 
 ### Development Mode
 
-```bash
-npm run electron:dev
-```
-
-This will:
-- Start the Vite dev server
-- Launch Electron with hot reload
+To run LocalDev in development mode:
+1. **Start the FastAPI Backend**: This is now handled automatically when you run the Electron app in development mode.
+2. **Start the React Frontend**: This is now handled automatically when you run the Electron app in development mode.
+3. **Start the Electron App**: Open a terminal in the project root and run:
+   ```bash
+   npm start
+   ```
+   This will launch the Electron window, loading the React dev server URL (http://localhost:5173) and spawning the Python backend.
 
 ### Build for Production
 
@@ -114,22 +129,21 @@ This creates distributable packages in the `release/` directory.
 
 ```
 Local-AI-IDE/
-├── electron/          # Electron main process
-│   ├── main.ts        # Main process entry
-│   └── preload.ts     # Preload script
-├── src/
-│   ├── components/    # React components
-│   │   ├── Editor.tsx
-│   │   ├── ChatPanel.tsx
-│   │   ├── FileExplorer.tsx
-│   │   ├── Terminal.tsx
-│   │   └── Settings.tsx
-│   ├── services/      # Business logic
-│   │   ├── ollama.ts  # Ollama integration
-│   │   └── rag.ts     # RAG pipeline
-│   ├── App.tsx        # Main app component
-│   └── main.tsx       # React entry point
-└── package.json
+├── electron/          # Electron main process and renderer
+│   └── main.js        # Main process entry
+├── backend/           # FastAPI backend code
+│   ├── main.py
+│   └── services.py
+├── frontend/          # React + Vite frontend code
+│   ├── client/        # React client application
+│   └── server/        # Node.js server for frontend assets (development)
+├── dist/              # Frontend build output (after npm run build in frontend)
+├── resources/         # Built backend executable and other resources
+│   └── api/           # PyInstaller output
+│       └── localdev-api  # Backend executable
+├── build_backend.sh   # Script to build the Python backend
+├── package.json       # Electron project configuration and scripts
+├── README.md
 ```
 
 ## 🐛 Troubleshooting
