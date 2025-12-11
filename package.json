@@ -1,0 +1,50 @@
+{
+  "name": "localdev-electron",
+  "version": "1.0.0",
+  "description": "An AI-Integrated IDE that runs locally.",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "npm run build:frontend && npm run build:backend && cp -r electron dist/electron && electron-builder",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build:backend": "./build_backend.sh"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.12.0"
+  },
+  "build": {
+    "appId": "com.localdev.app",
+    "productName": "LocalDev",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources",
+      "app": "./dist"
+    },
+    "files": [
+      "dist/**",
+      "electron/**"
+    ],
+    "extraResources": [
+      {
+        "from": "./resources/api/localdev-api",
+        "to": "api/localdev-api",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build-resources/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build-resources/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build-resources/icon.png"
+    }
+  }
+}
