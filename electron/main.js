@@ -23,7 +23,7 @@ function createWindow() {
     win.loadURL('http://localhost:5173');
     win.webContents.openDevTools(); // Open DevTools in development mode
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadFile(path.join(__dirname, '../dist/public/index.html'));
   }
 }
 
