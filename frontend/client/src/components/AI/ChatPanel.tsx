@@ -12,22 +12,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 
-// Custom component to render code blocks with syntax highlighting
-const CodeBlock = ({ inline, className, children, ...props }: any) => {
-  const match = /language-(\w+)/.exec(className || '');
-  return !inline && match ? (
-    <pre className={cn("p-2 rounded-md bg-zinc-800 text-white overflow-x-auto my-2", className)} {...props}>
-      <code className={className} {...props}>
-        {children}
-      </code>
-    </pre>
-  ) : (
-    <code className={cn("relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm", className)} {...props}>
-      {children}
-    </code>
-  );
-};
-
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string) => void;
@@ -37,9 +21,10 @@ interface ChatPanelProps {
   ollamaModels: string[];
   onClearChat: () => void;
   hasCheckedOllama: boolean;
+  onApplyDiff: (code: string, filePath: string) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyDiff }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -73,6 +58,49 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
         variant: "destructive",
       });
     }
+  };
+
+  // Custom component to render code blocks with syntax highlighting
+  // And an "Apply" button
+  const CodeBlockWithApply = ({ inline, className, children, ...props }: any) => {
+    const match = /language-(\w+)/.exec(className || '');
+    const codeContent = String(children).replace(/\n$/, '');
+
+    const handleApply = () => {
+      if (activeFile) {
+        onApplyDiff(codeContent, activeFile);
+      } else {
+        toast({
+          title: "No active file",
+          description: "Please open a file in the editor to apply changes.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    return !inline && match ? (
+      <div className="relative group">
+        <pre className={cn("p-2 rounded-md bg-zinc-800 text-white overflow-x-auto my-2", className)} {...props}>
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </pre>
+        {activeFile && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleApply}
+            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            Apply
+          </Button>
+        )}
+      </div>
+    ) : (
+      <code className={cn("relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm", className)} {...props}>
+        {children}
+      </code>
+    );
   };
 
   return (
@@ -137,12 +165,12 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                     <div className="mr-3 mt-0.5 shrink-0 opacity-70">
                         {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                     </div>
-                    <div className="whitespace-pre-wrap leading-relaxed prose prose-invert max-w-none">
+                    <div className="whitespace-pre-wrap leading-relaxed prose prose-invert max-w-none overflow-auto break-words">
                         <ReactMarkdown 
                             remarkPlugins={[remarkGfm]} 
                             rehypePlugins={[rehypeHighlight]} 
                             components={{
-                                code: CodeBlock, 
+                                code: CodeBlockWithApply, 
                                 a: ({ node, ...props }) => <a {...props} className="text-accent underline" target="_blank" rel="noopener noreferrer" />
                             }}
                         >

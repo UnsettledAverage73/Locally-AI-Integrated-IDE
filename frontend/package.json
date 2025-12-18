@@ -81,7 +81,8 @@
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
     "rehype-highlight": "^7.0.0",
-    "lowlight": "^3.0.0"
+    "lowlight": "^3.0.0",
+    "react-diff-view": "^3.3.2"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.4.4",

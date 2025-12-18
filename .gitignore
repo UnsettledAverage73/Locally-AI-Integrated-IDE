@@ -1,4 +1,21 @@
-backend/__pycache__
-backend/venv
-frontend/node_modules
-
+.venv/
+.env
+backend/.venv/
+backend/venv/
+frontend/node_modules/
+web-based-frontend/node_modules/
+backend/__pycache__/
+node_modules/
+dist/
+build/
+release/
+backend/venv/
+__pycache__/
+*.AppImage
+# Ignore build artifacts
+resources/api/
+dist/
+release/
+backend/build/
+backend/dist/
+*.spec

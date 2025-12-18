@@ -8,6 +8,8 @@ import CodeEditor from "@/components/Editor/CodeEditor";
 import ChatPanel from "@/components/AI/ChatPanel";
 import { fs, rag, llm } from "@/api/client";
 import { FileEntry, ChatMessage } from "@/types";
+import { Button } from "@/components/ui/button";
+import { DiffViewer } from "@/components/ui/DiffViewer";
 
 function App() {
   const { toast } = useToast();
@@ -17,6 +19,10 @@ function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [diffContent, setDiffContent] = useState<string | null>(null);
+  const [isDiffViewerOpen, setIsDiffViewerOpen] = useState(false);
+  const [originalFilePath, setOriginalFilePath] = useState<string | null>(null);
+  const [proposedContent, setProposedContent] = useState<string | null>(null);
   
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
@@ -149,6 +155,43 @@ function App() {
     }  
   };
 
+  const handleApplyDiff = async (suggestedCode: string, filePath: string) => {
+    try {
+      const { content: currentContent } = await fs.readFile(filePath);
+      const { diff } = await fs.diffContent(currentContent, suggestedCode, filePath); // Call new backend diff endpoint
+      setDiffContent(diff);
+      setOriginalFilePath(filePath);
+      setProposedContent(suggestedCode);
+      setIsDiffViewerOpen(true);
+    } catch (error) {
+      toast({
+        title: "Error preparing diff",
+        description: "Could not read the original file content or generate diff.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAcceptDiff = async () => {
+    if (!originalFilePath || proposedContent === null) return;
+    try {
+      await fs.applyDiff(originalFilePath, proposedContent); // Call new backend apply-diff endpoint
+      setFileContent(proposedContent); // Update editor content immediately
+      setIsDiffViewerOpen(false);
+      toast({
+        title: "Changes Applied",
+        description: `Successfully applied changes to ${originalFilePath}`,
+        className: "bg-green-500/10 border-green-500/50 text-green-500",
+      });
+    } catch (error) {
+      toast({
+        title: "Error applying changes",
+        description: "Could not write changes to file.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (isBooting) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-background text-primary">
@@ -220,6 +263,7 @@ function App() {
                     ollamaModels={ollamaModels}
                     onClearChat={() => setChatMessages([])}
                     hasCheckedOllama={hasCheckedOllama}
+                    onApplyDiff={handleApplyDiff}
                 />
             </ResizablePanel>
         </ResizablePanelGroup>
@@ -237,6 +281,16 @@ function App() {
        </footer>
 
        <Toaster />
+
+       {/* Diff Viewer */}
+       <DiffViewer 
+          isOpen={isDiffViewerOpen}
+          onClose={() => setIsDiffViewerOpen(false)}
+          onAccept={handleAcceptDiff}
+          diffContent={diffContent || ""}
+          filePath={originalFilePath || ""}
+          proposedContent={proposedContent || ""}
+       />
     </div>
   );
 }
