@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "npm run build:frontend && npm run build:backend && cp -r electron dist/electron && electron-builder",
+    "build": "npm run build:frontend && npm run build:backend && mkdir -p dist && cp -r electron dist/ && electron-builder",
     "build:frontend": "cd frontend && npm install && npm run build",
     "build:backend": "./build_backend.sh"
   },
@@ -18,12 +18,14 @@
     "productName": "LocalDev",
     "directories": {
       "output": "release",
-      "buildResources": "build-resources",
-      "app": "./dist"
+      "buildResources": "build-resources"
     },
     "files": [
-      "dist/**",
-      "electron/**"
+      "**/*",
+      "electron/**/*",
+      "package.json",
+      "dist/**/*",
+      "resources/**/*"
     ],
     "extraResources": [
       {
@@ -46,5 +48,8 @@
       "target": "AppImage",
       "icon": "build-resources/icon.png"
     }
+  },
+  "dependencies": {
+    "electron-is-dev": "^3.0.1"
   }
 }
