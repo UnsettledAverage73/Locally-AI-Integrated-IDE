@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Sparkles, Eraser } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Send, Bot, User, Sparkles, Eraser, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage } from "../../types";
@@ -13,26 +13,6 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-// Custom component to render code blocks with syntax highlighting
-const CodeBlock = ({ inline, className, children, ...props }: any) => {
-  const match = /language-(\w+)/.exec(className || '');
-  return !inline && match ? (
-    <SyntaxHighlighter
-      style={vscDarkPlus}
-      language={match[1]}
-      PreTag="div"
-      className="rounded-md my-2"
-      {...props}
-    >
-      {String(children).replace(/\n$/, '')}
-    </SyntaxHighlighter>
-  ) : (
-    <code className={cn("relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm", className)} {...props}>
-      {children}
-    </code>
-  );
-};
-
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string) => void;
@@ -42,9 +22,10 @@ interface ChatPanelProps {
   ollamaModels: string[];
   onClearChat: () => void;
   hasCheckedOllama: boolean;
+  onApplyCode: (code: string) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -79,6 +60,46 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
       });
     }
   };
+
+  // Custom component to render code blocks with syntax highlighting and "Apply" button
+  const CodeBlock = useMemo(() => ({ inline, className, children, ...props }: any) => {
+    const match = /language-(\w+)/.exec(className || '');
+    const codeContent = String(children).replace(/\n$/, '');
+
+    return !inline && match ? (
+      <div className="relative group my-4 rounded-md overflow-hidden border border-border/50 bg-[#1e1e1e]">
+          {/* Code Header / Actions */}
+          <div className="flex items-center justify-between px-3 py-1.5 bg-[#2d2d2d] border-b border-border/50">
+             <span className="text-xs text-muted-foreground font-mono">{match[1]}</span>
+             {activeFile && (
+                 <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 text-xs gap-1.5 text-green-400 hover:text-green-300 hover:bg-green-400/10"
+                    onClick={() => onApplyCode(codeContent)}
+                    title={`Apply code to ${activeFile}`}
+                 >
+                    <Play className="w-3 h-3" />
+                    Apply Code
+                 </Button>
+             )}
+          </div>
+          <SyntaxHighlighter
+            style={vscDarkPlus}
+            language={match[1]}
+            PreTag="div"
+            customStyle={{ margin: 0, borderRadius: 0, fontSize: '0.875rem' }}
+            {...props}
+          >
+            {codeContent}
+          </SyntaxHighlighter>
+      </div>
+    ) : (
+      <code className={cn("relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm", className)} {...props}>
+        {children}
+      </code>
+    );
+  }, [activeFile, onApplyCode]);
 
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-md border-l border-border">

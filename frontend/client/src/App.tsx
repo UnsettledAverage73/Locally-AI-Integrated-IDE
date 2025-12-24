@@ -116,6 +116,33 @@ function App() {
     }
   };
 
+  const handleApplyCode = async (code: string) => {
+    if (!activeFile) {
+        toast({
+            title: "No File Selected",
+            description: "Please open a file to apply code.",
+            variant: "destructive",
+        });
+        return;
+    }
+
+    try {
+        await fs.writeFile(activeFile, code);
+        setFileContent(code); // Update editor immediately
+        toast({
+            title: "Code Applied",
+            description: `Updated ${activeFile} successfully.`,
+            className: "bg-green-500/10 border-green-500/50 text-green-500",
+        });
+    } catch (error) {
+        toast({
+            title: "Apply Failed",
+            description: "Could not write to file.",
+            variant: "destructive",
+        });
+    }
+  };
+
   const handleSendMessage = async (content: string) => {
     const newMessages: ChatMessage[] = [
         ...chatMessages, 
@@ -239,6 +266,7 @@ function App() {
                     ollamaModels={ollamaModels}
                     onClearChat={() => setChatMessages([])}
                     hasCheckedOllama={hasCheckedOllama}
+                    onApplyCode={handleApplyCode}
                 />
             </ResizablePanel>
         </ResizablePanelGroup>
