@@ -2,10 +2,13 @@ import React, { useEffect, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command } from "lucide-react";
+import { Loader2, Command, Settings } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import ChatPanel from "@/components/AI/ChatPanel";
+import Terminal from "@/components/Terminal/Terminal";
+import SettingsModal from "@/components/Settings/SettingsModal";
+import { Button } from "@/components/ui/button";
 import { fs, rag, llm } from "@/api/client";
 import { FileEntry, ChatMessage } from "@/types";
 
@@ -25,6 +28,7 @@ function App() {
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [hasCheckedOllama, setHasCheckedOllama] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Initial Boot
   useEffect(() => {
@@ -168,9 +172,14 @@ function App() {
             <div className="w-3 h-3 rounded-full bg-green-500/50" />
             <span className="ml-4 font-display font-bold text-lg tracking-widest text-foreground/80">LOCALDEV</span>
           </div>
-          <div className="flex items-center text-xs text-muted-foreground font-mono bg-black/20 px-2 py-1 rounded">
-             <Command className="w-3 h-3 mr-2" />
-             v1.0.0-alpha
+          <div className="flex items-center gap-2">
+             <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} className="h-8 w-8 hover:bg-muted">
+                <Settings className="w-4 h-4 text-muted-foreground" />
+             </Button>
+             <div className="flex items-center text-xs text-muted-foreground font-mono bg-black/20 px-2 py-1 rounded">
+                <Command className="w-3 h-3 mr-2" />
+                v1.0.0-alpha
+             </div>
           </div>
        </header>
 
@@ -195,16 +204,26 @@ function App() {
             
             <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
 
-            {/* Center: Editor */}
+            {/* Center: Editor & Terminal */}
             <ResizablePanel defaultSize={55} minSize={30}>
-                <CodeEditor 
-                    content={fileContent} 
-                    filePath={activeFile} 
-                    onChange={handleEditorChange}
-                    onSave={handleSave}
-                    onIndex={handleIndex}
-                    isIndexing={isIndexing}
-                />
+                <ResizablePanelGroup direction="vertical">
+                    <ResizablePanel defaultSize={75} minSize={20}>
+                        <CodeEditor 
+                            content={fileContent} 
+                            filePath={activeFile} 
+                            onChange={handleEditorChange}
+                            onSave={handleSave}
+                            onIndex={handleIndex}
+                            isIndexing={isIndexing}
+                        />
+                    </ResizablePanel>
+                    
+                    <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
+                    
+                    <ResizablePanel defaultSize={25} minSize={10}>
+                        <Terminal />
+                    </ResizablePanel>
+                </ResizablePanelGroup>
             </ResizablePanel>
 
             <ResizableHandle className="bg-border hover:bg-accent transition-colors" />
@@ -237,6 +256,7 @@ function App() {
        </footer>
 
        <Toaster />
+       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   );
 }
