@@ -49,7 +49,14 @@ class OllamaService:
         # The incoming 'messages' from ChatRequest already conform to this.
         print(f"Sending messages to Ollama chat: {messages}")
         try:
-            response = await self.client.chat(model=model, messages=messages)
+            # Control temperature and other options to reduce hallucination/gibberish
+            options = {
+                "temperature": 0.4,
+                "top_p": 0.9,
+                "num_predict": 2048,
+                "stop": ["User:", "Assistant:", "Instruction:"]
+            }
+            response = await self.client.chat(model=model, messages=messages, options=options)
             return response["message"]["content"]
         except Exception as e:
             print(f"CRITICAL OLLAMA ERROR: {str(e)}")
