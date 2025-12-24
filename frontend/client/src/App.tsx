@@ -2,15 +2,17 @@ import React, { useEffect, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import ChatPanel from "@/components/AI/ChatPanel";
 import Terminal from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
+import SourceControl from "@/components/Git/SourceControl";
 import { Button } from "@/components/ui/button";
 import { fs, rag, llm } from "@/api/client";
 import { FileEntry, ChatMessage } from "@/types";
+import { cn } from "@/lib/utils";
 
 function App() {
   const { toast } = useToast();
@@ -20,6 +22,7 @@ function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [activeView, setActiveView] = useState<'explorer' | 'git'>('explorer');
   
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
@@ -211,22 +214,48 @@ function App() {
        </header>
 
        {/* Main Layout */}
-       <div className="flex-1 overflow-hidden">
+       <div className="flex-1 overflow-hidden flex">
+        {/* Activity Bar (Leftmost Strip) */}
+        <div className="w-12 bg-card/30 border-r border-border flex flex-col items-center py-2 space-y-2">
+            <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-10 w-10", activeView === 'explorer' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                onClick={() => setActiveView('explorer')}
+                title="File Explorer"
+            >
+                <Files className="w-5 h-5" />
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-10 w-10", activeView === 'git' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                onClick={() => setActiveView('git')}
+                title="Source Control"
+            >
+                <GitBranch className="w-5 h-5" />
+            </Button>
+        </div>
+
         <ResizablePanelGroup direction="horizontal">
-            {/* Left Sidebar: File Explorer */}
+            {/* Left Sidebar: File Explorer OR Git */}
             <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
-                <div className="h-full flex flex-col">
-                    <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
-                        Explorer
+                {activeView === 'explorer' ? (
+                    <div className="h-full flex flex-col">
+                        <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
+                            Explorer
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2">
+                            <FileTree 
+                                entries={fileTree} 
+                                onFileClick={handleFileClick} 
+                                activeFile={activeFile} 
+                            />
+                        </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2">
-                        <FileTree 
-                            entries={fileTree} 
-                            onFileClick={handleFileClick} 
-                            activeFile={activeFile} 
-                        />
-                    </div>
-                </div>
+                ) : (
+                    <SourceControl />
+                )}
             </ResizablePanel>
             
             <ResizableHandle className="bg-border hover:bg-primary transition-colors" />

@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 # Ensure you have created bedrock_service.py and services.py!
 from services import OllamaService, RAGService
 from bedrock_service import BedrockService
+from git_service import GitService
 
 app = FastAPI()
 
@@ -40,6 +41,7 @@ app_state = {
 # --- SERVICE INITIALIZATION ---
 ollama_service = OllamaService()
 rag_service = RAGService(ollama_service=ollama_service)
+git_service = GitService(ollama_service=ollama_service)
 
 # --- DATA MODELS ---
 
@@ -80,6 +82,12 @@ class DiffRequest(BaseModel):
     proposed_content: str
     file_path: str # Added to pass file path to diff
 
+class GitStageRequest(BaseModel):
+    path: str
+
+class GitCommitRequest(BaseModel):
+    message: str
+
 # --- ENDPOINTS ---
 
 @app.get("/")
@@ -107,6 +115,45 @@ async def get_config_status():
         "mode": app_state["mode"], 
         "has_keys": app_state["aws_creds"] is not None
     }
+
+# --- GIT ENDPOINTS ---
+
+@app.get("/git/status")
+async def git_status():
+    try:
+        changes = git_service.get_status()
+        return {"changes": changes}
+    except Exception as e:
+        return {"error": str(e), "changes": []}
+
+@app.post("/git/stage")
+async def git_stage(request: GitStageRequest):
+    try:
+        git_service.stage_file(request.path)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/git/unstage")
+async def git_unstage(request: GitStageRequest):
+    try:
+        git_service.unstage_file(request.path)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/git/generate-message")
+async def git_generate_message():
+    message = await git_service.generate_commit_message()
+    return {"message": message}
+
+@app.post("/git/commit")
+async def git_commit(request: GitCommitRequest):
+    try:
+        git_service.commit(request.message)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- OLLAMA / CHAT ENDPOINTS ---
 

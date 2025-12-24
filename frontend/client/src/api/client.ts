@@ -116,3 +116,28 @@ export const llm = {
     return data;
   },
 };
+
+export const git = {
+    status: async (): Promise<{ changes: { code: string; path: string }[] }> => {
+        if (USE_MOCKS) return { changes: [] };
+        const { data } = await api.get("/git/status");
+        return data;
+    },
+    stage: async (path: string): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/stage", { path });
+    },
+    unstage: async (path: string): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/unstage", { path });
+    },
+    generateMessage: async (): Promise<{ message: string }> => {
+        if (USE_MOCKS) return { message: "feat: mock commit message" };
+        const { data } = await api.post("/git/generate-message");
+        return data;
+    },
+    commit: async (message: string): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/commit", { message });
+    }
+};
