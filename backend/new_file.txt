@@ -1,1 +1,12 @@
-This is some content for the new file.
+# Define two types: int and str
+int_type = 10
+str_type = "Hello"
+
+# Convert int to str
+int_str = str(int_type)
+
+print(int_type)  # Output: 10
+print(str_type)  # Output: Hello
+
+# Example of type casting in Python
+# This is a simple example and does not cover all possible types or edge cases.

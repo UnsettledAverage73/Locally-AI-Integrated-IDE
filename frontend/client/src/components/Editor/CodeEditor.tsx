@@ -1,8 +1,9 @@
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
 import { Save, BrainCircuit } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { llm } from "@/api/client";
 
 interface CodeEditorProps {
   content: string;
@@ -22,14 +23,89 @@ export default function CodeEditor({
   isIndexing,
 }: CodeEditorProps) {
   const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+  const completionProviderRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (completionProviderRef.current) {
+        completionProviderRef.current.dispose();
+      }
+    };
+  }, []);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    monacoRef.current = monaco;
     
     // Add keybinding for Ctrl+S
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       onSave();
     });
+
+    // Register Ghost Text Provider
+    if (completionProviderRef.current) {
+        completionProviderRef.current.dispose();
+    }
+
+    completionProviderRef.current = monaco.languages.registerInlineCompletionsProvider(
+      { pattern: "**/*" },
+      {
+        provideInlineCompletions: async (model: any, position: any, context: any, token: any) => {
+          // Get text before and after cursor
+          const prefix = model.getValueInRange({
+            startLineNumber: 1,
+            startColumn: 1,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          });
+
+          const suffix = model.getValueInRange({
+            startLineNumber: position.lineNumber,
+            startColumn: position.column,
+            endLineNumber: model.getLineCount(),
+            endColumn: model.getLineMaxColumn(model.getLineCount()),
+          });
+
+          // Only trigger if we have some context
+          if (prefix.trim().length < 5) {
+            return { items: [] };
+          }
+
+          // Wait a tiny bit to see if user keeps typing
+          await new Promise(resolve => setTimeout(resolve, 50));
+          if (token.isCancellationRequested) {
+            return { items: [] };
+          }
+
+          try {
+            const { content } = await llm.complete(prefix, suffix);
+            
+            if (token.isCancellationRequested || !content) {
+              return { items: [] };
+            }
+
+            return {
+              items: [
+                {
+                  insertText: content,
+                  range: {
+                    startLineNumber: position.lineNumber,
+                    startColumn: position.column,
+                    endLineNumber: position.lineNumber,
+                    endColumn: position.column,
+                  },
+                },
+              ],
+            };
+          } catch (e) {
+            console.error("Ghost text error:", e);
+            return { items: [] };
+          }
+        },
+        freeInlineCompletions: () => {},
+      }
+    );
   };
 
   if (!filePath) {
@@ -97,6 +173,13 @@ export default function CodeEditor({
             cursorSmoothCaretAnimation: "on",
             padding: { top: 16 },
             automaticLayout: true,
+            inlineSuggest: {
+              enabled: true,
+              mode: "prefix",
+            },
+            suggest: {
+                preview: true,
+            }
           }}
         />
       </div>

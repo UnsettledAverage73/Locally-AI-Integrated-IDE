@@ -10,6 +10,7 @@ import select
 import struct
 import fcntl
 import termios
+import psutil # Added for system stats
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 # --- SERVICES ---
@@ -52,6 +53,13 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     model: str      
     messages: List[Dict[str, str]] 
+    options: Dict[str, Any] | None = None # Added options
+
+class CompletionRequest(BaseModel):
+    model: str
+    prefix: str
+    suffix: str
+    options: Dict[str, Any] | None = None
 
 class ConfigRequest(BaseModel):
     mode: str 
@@ -167,6 +175,60 @@ async def ollama_models():
     models = await ollama_service.list_models()
     return {"models": models}
 
+class PullModelRequest(BaseModel):
+    model: str
+
+@app.post("/ollama/pull")
+async def ollama_pull(request: PullModelRequest):
+    try:
+        # NOTE: This blocks until download completes.
+        # For a real "progress bar", we would need a WebSocket or a background task with polling.
+        # Given the complexity, for now we will just await it.
+        await ollama_service.pull_model(request.model)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws/ollama/pull")
+async def ollama_pull_ws(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        model_name = await websocket.receive_text()
+        print(f"Starting pull for: {model_name}")
+        
+        async for progress in ollama_service.pull_model_stream(model_name):
+            await websocket.send_json(progress)
+            
+        await websocket.send_json({"status": "done"})
+    except Exception as e:
+        print(f"WebSocket Error: {e}")
+        try:
+            await websocket.send_json({"error": str(e)})
+        except:
+            pass
+    finally:
+        await websocket.close()
+
+@app.delete("/ollama/models/{model_name}")
+async def ollama_delete(model_name: str):
+    try:
+        await ollama_service.delete_model(model_name)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system-resources")
+async def get_system_resources():
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    
+    return {
+        "ram_total_gb": round(mem.total / (1024**3), 2),
+        "ram_available_gb": round(mem.available / (1024**3), 2),
+        "disk_total_gb": round(disk.total / (1024**3), 2),
+        "disk_free_gb": round(disk.free / (1024**3), 2)
+    }
+
 # 3. Update the Chat Handler
 @app.post("/ollama/chat")
 async def ollama_chat(request: ChatRequest):
@@ -193,8 +255,21 @@ async def ollama_chat(request: ChatRequest):
 
     # 2. Default: Local Mode
     print("💻 Using Local Brain (Ollama)...")
-    response_content = await ollama_service.chat_completion(request.model, request.messages)
+    response_content = await ollama_service.chat_completion(request.model, request.messages, request.options)
     return {"content": response_content}
+
+@app.post("/ollama/complete")
+async def ollama_complete(request: CompletionRequest):
+    """
+    Fast FIM completion for ghost text.
+    """
+    content = await ollama_service.generate_completion(
+        request.model, 
+        request.prefix, 
+        request.suffix, 
+        request.options
+    )
+    return {"content": content}
 
 @app.post("/ollama/generate_embedding")
 async def ollama_generate_embedding(request: GenerateEmbeddingRequest):

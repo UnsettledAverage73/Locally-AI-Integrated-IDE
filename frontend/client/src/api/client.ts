@@ -100,7 +100,25 @@ export const llm = {
         await new Promise(resolve => setTimeout(resolve, 1500));
         return { content: "I analyzed your code. It looks correct, but you might want to add error handling to the `fs.readFile` call." };
     }
-    const { data } = await api.post("/ollama/chat", { model: "deepseek-coder", messages });
+    
+    // Get temperature and model from profile settings
+    const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
+    const model = localStorage.getItem("ai_model") || "deepseek-coder";
+    
+    const { data } = await api.post("/ollama/chat", { 
+        model, 
+        messages,
+        options: { temperature: temp }
+    });
+    return data;
+  },
+  complete: async (prefix: string, suffix: string): Promise<{ content: string }> => {
+    const model = localStorage.getItem("ai_model") || "deepseek-coder";
+    const { data } = await api.post("/ollama/complete", { 
+        model, 
+        prefix, 
+        suffix 
+    });
     return data;
   },
   generateEmbedding: async (text: string): Promise<{ embedding: number[] }> => {
@@ -115,6 +133,27 @@ export const llm = {
     const { data } = await api.get("/ollama/models");
     return data;
   },
+  pullModel: async (model: string): Promise<{ status: string }> => {
+    if (USE_MOCKS) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return { status: "success" };
+    }
+    const { data } = await api.post("/ollama/pull", { model });
+    return data;
+  },
+  deleteModel: async (model: string): Promise<{ status: string }> => {
+    if (USE_MOCKS) return { status: "success" };
+    const { data } = await api.delete(`/ollama/models/${model}`);
+    return data;
+  }
+};
+
+export const system = {
+    getStats: async (): Promise<{ ram_total_gb: number; ram_available_gb: number; disk_total_gb: number; disk_free_gb: number }> => {
+        if (USE_MOCKS) return { ram_total_gb: 16, ram_available_gb: 8, disk_total_gb: 500, disk_free_gb: 100 };
+        const { data } = await api.get("/api/system-resources");
+        return data;
+    }
 };
 
 export const git = {

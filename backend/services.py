@@ -1,18 +1,20 @@
 import ollama
 import lancedb
 import os
+import traceback
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 
 load_dotenv()
 
-OLLAMA_HOST = "http://127.0.0.1:11434" # Explicitly set for debugging
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 LANCEDB_PATH = os.getenv("LANCEDB_PATH", "./.localdev-db")
 
 class OllamaService:
     def __init__(self, host: str = OLLAMA_HOST):
-        self.client = ollama.AsyncClient(base_url=host, timeout=300.00)
+        # Increased timeout to 30 minutes for large model downloads
+        self.client = ollama.AsyncClient(base_url=host, timeout=1800.00)
 
     async def check_connection(self) -> bool:
         try:
@@ -28,7 +30,12 @@ class OllamaService:
                 print("Ollama server not reachable. Cannot list models.")
                 return []
             models = await self.client.list()
-            return [m["name"] for m in models["models"]]
+            # Handle different versions of ollama library
+            if isinstance(models, dict) and "models" in models:
+                return [m["name"] for m in models["models"]]
+            elif hasattr(models, 'models'):
+                return [m.model for m in models.models]
+            return []
         except Exception as e:
             print(f"Error listing models: {e}")
             return []
@@ -37,31 +44,124 @@ class OllamaService:
         try:
             response = await self.client.embeddings(model=EMBEDDING_MODEL, prompt=text)
             return response["embedding"]
-        except Exception:
+        except Exception as e:
+            print(f"Embedding error: {str(e)}")
             return []
 
     async def stream_completion(self, model: str, prompt: str):
-        async for chunk in await self.client.generate(model=model, prompt=prompt, stream=True):
-            yield chunk
+        try:
+            async for chunk in await self.client.generate(model=model, prompt=prompt, stream=True):
+                yield chunk
+        except Exception as e:
+            print(f"Stream completion error: {str(e)}")
+            yield {"error": str(e)}
 
-    async def chat_completion(self, model: str, messages: List[Dict[str, str]]):
-        # The ollama.AsyncClient.chat method expects messages as a list of dictionaries with 'role' and 'content'.
-        # The incoming 'messages' from ChatRequest already conform to this.
+    async def chat_completion(self, model: str, messages: List[Dict[str, str]], options: Dict[str, Any] = None):
         print(f"Sending messages to Ollama chat: {messages}")
         try:
-            # Control temperature and other options to reduce hallucination/gibberish
-            options = {
+            # First, verify connection
+            if not await self.check_connection():
+                return "Error: Ollama server is not running. Please start it with 'ollama serve'."
+
+            # Second, verify model exists
+            available_models = await self.list_models()
+            # Strip tags for comparison if needed (e.g., deepseek-coder:latest vs deepseek-coder)
+            model_names = [m.split(':')[0] for m in available_models]
+            if model.split(':')[0] not in model_names and model not in available_models:
+                return f"Error: Model '{model}' not found. Please run 'ollama pull {model}'."
+
+            default_options = {
                 "temperature": 0.4,
                 "top_p": 0.9,
                 "num_predict": 2048,
                 "stop": ["User:", "Assistant:", "Instruction:"]
             }
-            response = await self.client.chat(model=model, messages=messages, options=options)
-            return response["message"]["content"]
+            
+            # Merge provided options with defaults
+            final_options = default_options.copy()
+            if options:
+                final_options.update(options)
+
+            response = await self.client.chat(model=model, messages=messages, options=final_options)
+            
+            # Handle response format variations
+            if isinstance(response, dict):
+                return response["message"]["content"]
+            else:
+                return response.message.content
+
         except Exception as e:
-            print(f"CRITICAL OLLAMA ERROR: {str(e)}")
-            # Return a friendly error message to the UI instead of crashing
-            return f"Error: The model took too long or failed to respond. (Details: {str(e)})"
+            error_detail = f"{type(e).__name__}: {str(e)}"
+            print(f"CRITICAL OLLAMA ERROR: {error_detail}")
+            traceback.print_exc()
+            return f"Error: The model failed to respond. (Details: {error_detail})"
+
+    async def pull_model(self, model: str):
+        try:
+            return await self.client.pull(model=model)
+        except Exception as e:
+            print(f"Error pulling model {model}: {e}")
+            raise e
+
+    async def pull_model_stream(self, model: str):
+        """Yields progress updates for model pulling."""
+        try:
+            async for progress in await self.client.pull(model=model, stream=True):
+                yield progress
+        except Exception as e:
+            print(f"Error pulling model stream {model}: {e}")
+            yield {"error": str(e)}
+
+    async def generate_completion(self, model: str, prefix: str, suffix: str, options: Dict[str, Any] = None):
+        """
+        Fill-in-the-middle completion for ghost text.
+        """
+        try:
+            # Determine FIM tokens based on model name
+            model_lower = model.lower()
+            if "qwen" in model_lower:
+                prompt = f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
+                stop = ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>", "<|endoftext|>", "\n\n"]
+            else:
+                # Default to DeepSeek tokens
+                prompt = f"<｜fim_begin｜>{prefix}<｜fim_hole｜>{suffix}<｜fim_end｜>"
+                stop = ["<｜fim_begin｜>", "<｜fim_hole｜>", "<｜fim_end｜>", "\n\n", "User:", "Assistant:"]
+            
+            # Optimized options for speed
+            default_options = {
+                "temperature": 0.0,
+                "num_predict": 64, # Shorter for faster ghost text
+                "top_p": 1,
+                "stop": stop
+            }
+            
+            final_options = default_options.copy()
+            if options:
+                final_options.update(options)
+
+            response = await self.client.generate(
+                model=model, 
+                prompt=prompt, 
+                options=final_options,
+                raw=True 
+            )
+            
+            content = response["response"]
+            # Clean up any leaking FIM tokens if the model is being weird
+            for s in stop:
+                if s in content:
+                    content = content.split(s)[0]
+            
+            # For ghost text, we usually only want the next relevant lines
+            # If it's too long, truncate at the first double newline or similar
+            lines = content.split("\n")
+            if len(lines) > 5:
+                content = "\n".join(lines[:5])
+
+            return content.strip("\n")
+        except Exception as e:
+            print(f"Completion error: {str(e)}")
+            return ""
 
 class RAGService:
     def __init__(self, db_path: str = LANCEDB_PATH, ollama_service: OllamaService = None):
@@ -69,19 +169,15 @@ class RAGService:
         self.ollama_service = ollama_service or OllamaService()
         self.db = None
         self.table = None
-        self.indexed_files = set() # To keep track of indexed files
+        self.indexed_files = set() 
         self.initialize_db()
 
     def initialize_db(self):
         try:
             self.db = lancedb.connect(self.db_path)
             try:
-                # Define the schema for the LanceDB table
-                # The 'vector' field is for embeddings (List[float])
-                # The other fields are for metadata
                 self.table = self.db.open_table("code_index")
             except Exception:
-                # Table doesn't exist, it will be created on first insert
                 self.table = None
         except Exception as e:
             print(f"Error initializing LanceDB: {e}")
@@ -123,7 +219,7 @@ class RAGService:
             return
 
         if file_path in self.indexed_files:
-            return # Already indexed
+            return 
         
         chunks = await self._chunk_code(content)
         records = []
@@ -135,13 +231,11 @@ class RAGService:
                     "content": chunk["content"],
                     "start_line": chunk["start_line"],
                     "end_line": chunk["end_line"],
-                    "vector": embedding, # LanceDB expects 'vector' field for embeddings
+                    "vector": embedding, 
                 })
         
         if records:
             if not self.table:
-                # Create table with schema if it doesn't exist
-                # The schema is inferred from the first record with a 'vector' field
                 self.table = self.db.create_table("code_index", data=records)
             else:
                 self.table.add(records)
@@ -155,12 +249,11 @@ class RAGService:
         if not query_embedding:
             return ""
 
-        # LanceDB search expects a vector
         results = self.table.search(query_embedding).limit(limit).to_list()
 
         context = []
         for res in results:
-            context.append(f"File: {res["path"]} (lines {res["start_line"]}-{res["end_line"]})\n{res["content"]}")
+            context.append(f"File: {res['path']} (lines {res['start_line']}-{res['end_line']})\n{res['content']}")
         
         return "\n\n".join(context)
 

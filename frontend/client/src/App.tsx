@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { fs, rag, llm } from "@/api/client";
 import { FileEntry, ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
+import { DownloadProvider } from "@/context/DownloadContext";
+import { DownloadWidget } from "@/components/DownloadWidget";
 
 function App() {
   const { toast } = useToast();
@@ -193,128 +195,131 @@ function App() {
   }
 
   return (
-    <div className="h-screen w-screen bg-background text-foreground overflow-hidden flex flex-col">
-       {/* Top Bar */}
-       <header className="h-10 border-b border-border bg-card/50 backdrop-blur flex items-center px-4 justify-between select-none">
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-full bg-red-500/50" />
-            <div className="w-3 h-3 rounded-full bg-yellow-500/50" />
-            <div className="w-3 h-3 rounded-full bg-green-500/50" />
-            <span className="ml-4 font-display font-bold text-lg tracking-widest text-foreground/80">LOCALDEV</span>
+    <DownloadProvider>
+      <div className="h-screen w-screen bg-background text-foreground overflow-hidden flex flex-col">
+         {/* Top Bar */}
+         <header className="h-10 border-b border-border bg-card/50 backdrop-blur flex items-center px-4 justify-between select-none">
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 rounded-full bg-red-500/50" />
+              <div className="w-3 h-3 rounded-full bg-yellow-500/50" />
+              <div className="w-3 h-3 rounded-full bg-green-500/50" />
+              <span className="ml-4 font-display font-bold text-lg tracking-widest text-foreground/80">LOCALDEV</span>
+            </div>
+            <div className="flex items-center gap-2">
+               <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} className="h-8 w-8 hover:bg-muted">
+                  <Settings className="w-4 h-4 text-muted-foreground" />
+               </Button>
+               <div className="flex items-center text-xs text-muted-foreground font-mono bg-black/20 px-2 py-1 rounded">
+                  <Command className="w-3 h-3 mr-2" />
+                  v1.0.0-alpha
+               </div>
+            </div>
+         </header>
+
+         {/* Main Layout */}
+         <div className="flex-1 overflow-hidden flex">
+          {/* Activity Bar (Leftmost Strip) */}
+          <div className="w-12 bg-card/30 border-r border-border flex flex-col items-center py-2 space-y-2">
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10", activeView === 'explorer' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                  onClick={() => setActiveView('explorer')}
+                  title="File Explorer"
+              >
+                  <Files className="w-5 h-5" />
+              </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10", activeView === 'git' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                  onClick={() => setActiveView('git')}
+                  title="Source Control"
+              >
+                  <GitBranch className="w-5 h-5" />
+              </Button>
           </div>
-          <div className="flex items-center gap-2">
-             <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} className="h-8 w-8 hover:bg-muted">
-                <Settings className="w-4 h-4 text-muted-foreground" />
-             </Button>
-             <div className="flex items-center text-xs text-muted-foreground font-mono bg-black/20 px-2 py-1 rounded">
-                <Command className="w-3 h-3 mr-2" />
-                v1.0.0-alpha
+
+          <ResizablePanelGroup direction="horizontal">
+              {/* Left Sidebar: File Explorer OR Git */}
+              <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
+                  {activeView === 'explorer' ? (
+                      <div className="h-full flex flex-col">
+                          <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
+                              Explorer
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-2">
+                              <FileTree 
+                                  entries={fileTree} 
+                                  onFileClick={handleFileClick} 
+                                  activeFile={activeFile} 
+                              />
+                          </div>
+                      </div>
+                  ) : (
+                      <SourceControl />
+                  )}
+              </ResizablePanel>
+              
+              <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
+
+              {/* Center: Editor & Terminal */}
+              <ResizablePanel defaultSize={55} minSize={30}>
+                  <ResizablePanelGroup direction="vertical">
+                      <ResizablePanel defaultSize={75} minSize={20}>
+                          <CodeEditor 
+                              content={fileContent} 
+                              filePath={activeFile} 
+                              onChange={handleEditorChange}
+                              onSave={handleSave}
+                              onIndex={handleIndex}
+                              isIndexing={isIndexing}
+                          />
+                      </ResizablePanel>
+                      
+                      <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
+                      
+                      <ResizablePanel defaultSize={25} minSize={10}>
+                          <Terminal />
+                      </ResizablePanel>
+                  </ResizablePanelGroup>
+              </ResizablePanel>
+
+              <ResizableHandle className="bg-border hover:bg-accent transition-colors" />
+
+              {/* Right Sidebar: AI Chat */}
+              <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
+                  <ChatPanel 
+                      messages={chatMessages} 
+                      onSendMessage={handleSendMessage} 
+                      isLoading={isChatLoading}
+                      activeFile={activeFile}
+                      ollamaAvailable={ollamaAvailable}
+                      ollamaModels={ollamaModels}
+                      onClearChat={() => setChatMessages([])}
+                      hasCheckedOllama={hasCheckedOllama}
+                      onApplyCode={handleApplyCode}
+                  />
+              </ResizablePanel>
+          </ResizablePanelGroup>
+         </div>
+         
+         {/* Status Bar */}
+         <footer className="h-6 border-t border-border bg-card text-xs flex items-center px-4 justify-between text-muted-foreground font-mono">
+             <div className="flex space-x-4">
+                <span>Branch: <span className="text-primary">main</span></span>
+                <span>Errors: 0</span>
              </div>
-          </div>
-       </header>
+             <div>
+                {activeFile ? "UTF-8" : "No File"}
+             </div>
+         </footer>
 
-       {/* Main Layout */}
-       <div className="flex-1 overflow-hidden flex">
-        {/* Activity Bar (Leftmost Strip) */}
-        <div className="w-12 bg-card/30 border-r border-border flex flex-col items-center py-2 space-y-2">
-            <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-10 w-10", activeView === 'explorer' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
-                onClick={() => setActiveView('explorer')}
-                title="File Explorer"
-            >
-                <Files className="w-5 h-5" />
-            </Button>
-            <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-10 w-10", activeView === 'git' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
-                onClick={() => setActiveView('git')}
-                title="Source Control"
-            >
-                <GitBranch className="w-5 h-5" />
-            </Button>
-        </div>
-
-        <ResizablePanelGroup direction="horizontal">
-            {/* Left Sidebar: File Explorer OR Git */}
-            <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
-                {activeView === 'explorer' ? (
-                    <div className="h-full flex flex-col">
-                        <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
-                            Explorer
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-2">
-                            <FileTree 
-                                entries={fileTree} 
-                                onFileClick={handleFileClick} 
-                                activeFile={activeFile} 
-                            />
-                        </div>
-                    </div>
-                ) : (
-                    <SourceControl />
-                )}
-            </ResizablePanel>
-            
-            <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
-
-            {/* Center: Editor & Terminal */}
-            <ResizablePanel defaultSize={55} minSize={30}>
-                <ResizablePanelGroup direction="vertical">
-                    <ResizablePanel defaultSize={75} minSize={20}>
-                        <CodeEditor 
-                            content={fileContent} 
-                            filePath={activeFile} 
-                            onChange={handleEditorChange}
-                            onSave={handleSave}
-                            onIndex={handleIndex}
-                            isIndexing={isIndexing}
-                        />
-                    </ResizablePanel>
-                    
-                    <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
-                    
-                    <ResizablePanel defaultSize={25} minSize={10}>
-                        <Terminal />
-                    </ResizablePanel>
-                </ResizablePanelGroup>
-            </ResizablePanel>
-
-            <ResizableHandle className="bg-border hover:bg-accent transition-colors" />
-
-            {/* Right Sidebar: AI Chat */}
-            <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
-                <ChatPanel 
-                    messages={chatMessages} 
-                    onSendMessage={handleSendMessage} 
-                    isLoading={isChatLoading}
-                    activeFile={activeFile}
-                    ollamaAvailable={ollamaAvailable}
-                    ollamaModels={ollamaModels}
-                    onClearChat={() => setChatMessages([])}
-                    hasCheckedOllama={hasCheckedOllama}
-                    onApplyCode={handleApplyCode}
-                />
-            </ResizablePanel>
-        </ResizablePanelGroup>
-       </div>
-       
-       {/* Status Bar */}
-       <footer className="h-6 border-t border-border bg-card text-xs flex items-center px-4 justify-between text-muted-foreground font-mono">
-           <div className="flex space-x-4">
-              <span>Branch: <span className="text-primary">main</span></span>
-              <span>Errors: 0</span>
-           </div>
-           <div>
-              {activeFile ? "UTF-8" : "No File"}
-           </div>
-       </footer>
-
-       <Toaster />
-       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-    </div>
+         <Toaster />
+         <DownloadWidget />
+         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      </div>
+    </DownloadProvider>
   );
 }
 

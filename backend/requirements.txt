@@ -8,3 +8,5 @@ ollama==0.1.0
 websockets==12.0
 boto3
 botocore
+psutil
+httpx
