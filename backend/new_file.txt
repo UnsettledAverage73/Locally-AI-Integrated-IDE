@@ -10,3 +10,5 @@ print(str_type)  # Output: Hello
 
 # Example of type casting in Python
 # This is a simple example and does not cover all possible types or edge cases.
+
+# this is abstract
