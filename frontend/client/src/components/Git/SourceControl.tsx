@@ -1,8 +1,25 @@
 import React, { useEffect, useState } from "react";
-import { GitBranch, Check, Plus, Minus, MessageSquare, RefreshCw } from "lucide-react";
+import { GitBranch, Check, Plus, Minus, MessageSquare, RefreshCw, Upload, Download, ArrowUpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { git } from "@/api/client";
 import { Loader2 } from "lucide-react";
@@ -15,8 +32,13 @@ interface GitChange {
 export default function SourceControl() {
     const [changes, setChanges] = useState<GitChange[]>([]);
     const [message, setMessage] = useState("");
+    const [currentBranch, setCurrentBranch] = useState("...");
+    const [branches, setBranches] = useState<string[]>([]);
+    const [newBranchName, setNewBranchName] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
     const { toast } = useToast();
 
     const fetchStatus = async () => {
@@ -24,10 +46,21 @@ export default function SourceControl() {
         try {
             const { changes } = await git.status();
             setChanges(changes);
+            const { branch } = await git.getBranch();
+            setCurrentBranch(branch);
         } catch (error) {
             console.error(error);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const fetchBranches = async () => {
+        try {
+            const { branches } = await git.getBranches();
+            setBranches(branches);
+        } catch (error) {
+            console.error(error);
         }
     };
 
@@ -81,16 +114,141 @@ export default function SourceControl() {
         }
     };
 
+    const handleSwitchBranch = async (branch: string) => {
+        try {
+            await git.checkout(branch);
+            fetchStatus();
+            toast({
+                title: "Switched Branch",
+                description: `Switched to ${branch}`,
+            });
+        } catch (error) {
+            toast({
+                title: "Checkout Failed",
+                description: "Could not switch branch.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const handleCreateBranch = async () => {
+        if (!newBranchName) return;
+        try {
+            await git.createBranch(newBranchName);
+            setNewBranchName("");
+            setIsBranchDialogOpen(false);
+            fetchStatus();
+            toast({
+                title: "Branch Created",
+                description: `Created and switched to ${newBranchName}`,
+            });
+        } catch (error) {
+            toast({
+                title: "Creation Failed",
+                description: "Could not create branch.",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const handlePush = async () => {
+        setIsSyncing(true);
+        try {
+            await git.push();
+            toast({ title: "Push Successful" });
+        } catch (error) {
+            toast({ title: "Push Failed", variant: "destructive" });
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handlePull = async () => {
+        setIsSyncing(true);
+        try {
+            await git.pull();
+            fetchStatus();
+            toast({ title: "Pull Successful" });
+        } catch (error) {
+            toast({ title: "Pull Failed", variant: "destructive" });
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const stagedChanges = changes.filter(c => c.code[0] !== ' ' && c.code[0] !== '?');
     const unstagedChanges = changes.filter(c => c.code[0] === ' ' || c.code[0] === '?');
 
     return (
         <div className="h-full flex flex-col bg-card/20 text-sm">
-            <div className="p-2 border-b border-border/50 flex items-center justify-between">
-                <span className="font-bold text-muted-foreground uppercase tracking-wider text-xs">Source Control</span>
-                <Button variant="ghost" size="icon" onClick={fetchStatus} className="h-6 w-6">
-                    <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
-                </Button>
+            <div className="p-2 border-b border-border/50 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                    <span className="font-bold text-muted-foreground uppercase tracking-wider text-xs">Source Control</span>
+                    <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={handlePull} className="h-6 w-6" disabled={isSyncing} title="Pull">
+                            <Download className="w-3 h-3" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={handlePush} className="h-6 w-6" disabled={isSyncing} title="Push">
+                            <Upload className="w-3 h-3" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={fetchStatus} className="h-6 w-6" disabled={isLoading}>
+                            <RefreshCw className={`w-3 h-3 ${isLoading || isSyncing ? 'animate-spin' : ''}`} />
+                        </Button>
+                    </div>
+                </div>
+                
+                {/* Branch Management */}
+                <DropdownMenu onOpenChange={(open) => open && fetchBranches()}>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-full justify-between h-7 text-xs px-2">
+                            <div className="flex items-center gap-2 truncate">
+                                <GitBranch className="w-3.5 h-3.5" />
+                                <span className="truncate">{currentBranch}</span>
+                            </div>
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-[200px]">
+                        <DropdownMenuLabel>Branches</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <div className="max-h-[200px] overflow-y-auto">
+                            {branches.map(branch => (
+                                <DropdownMenuItem key={branch} onSelect={() => handleSwitchBranch(branch)} disabled={branch === currentBranch}>
+                                    <span className={branch === currentBranch ? "font-bold" : ""}>{branch}</span>
+                                    {branch === currentBranch && <Check className="w-3 h-3 ml-auto" />}
+                                </DropdownMenuItem>
+                            ))}
+                        </div>
+                        <DropdownMenuSeparator />
+                        <Dialog open={isBranchDialogOpen} onOpenChange={setIsBranchDialogOpen}>
+                            <DialogTrigger asChild>
+                                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                    <Plus className="w-3 h-3 mr-2" />
+                                    Create New Branch...
+                                </DropdownMenuItem>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Create New Branch</DialogTitle>
+                                    <DialogDescription>
+                                        Create a new branch from <strong>{currentBranch}</strong>.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className="py-2">
+                                    <Input 
+                                        placeholder="Branch name (e.g., feature/new-ui)" 
+                                        value={newBranchName}
+                                        onChange={(e) => setNewBranchName(e.target.value)}
+                                        onKeyDown={(e) => e.key === "Enter" && handleCreateBranch()}
+                                    />
+                                </div>
+                                <DialogFooter>
+                                    <Button variant="secondary" onClick={() => setIsBranchDialogOpen(false)}>Cancel</Button>
+                                    <Button onClick={handleCreateBranch}>Create Branch</Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-4">

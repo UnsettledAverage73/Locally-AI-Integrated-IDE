@@ -2,33 +2,33 @@
 @import "tw-animate-css";
 
 @theme inline {
-  --color-background: hsl(222 47% 11%);
-  --color-foreground: hsl(210 40% 98%);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 
-  --color-card: hsl(217 33% 17%);
-  --color-card-foreground: hsl(210 40% 98%);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
 
-  --color-popover: hsl(222 47% 11%);
-  --color-popover-foreground: hsl(210 40% 98%);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 
-  --color-primary: hsl(186 100% 50%); /* Cyan Neon */
-  --color-primary-foreground: hsl(222 47% 11%);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
 
-  --color-secondary: hsl(217 33% 17%);
-  --color-secondary-foreground: hsl(210 40% 98%);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
 
-  --color-muted: hsl(217 33% 17%);
-  --color-muted-foreground: hsl(215 20% 65%);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
 
-  --color-accent: hsl(280 100% 70%); /* Purple Neon */
-  --color-accent-foreground: hsl(210 40% 98%);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
 
-  --color-destructive: hsl(0 62% 30%);
-  --color-destructive-foreground: hsl(210 40% 98%);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
 
-  --color-border: hsl(217 33% 25%);
-  --color-input: hsl(217 33% 17%);
-  --color-ring: hsl(186 100% 50%);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
@@ -37,6 +37,130 @@
   --font-sans: "Inter", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
   --font-display: "Rajdhani", sans-serif;
+}
+
+/* Default Theme (Midnight/Dark) */
+:root {
+  --background: hsl(222 47% 11%);
+  --foreground: hsl(210 40% 98%);
+  
+  --card: hsl(217 33% 17%);
+  --card-foreground: hsl(210 40% 98%);
+  
+  --popover: hsl(222 47% 11%);
+  --popover-foreground: hsl(210 40% 98%);
+  
+  --primary: hsl(186 100% 50%); /* Cyan Neon */
+  --primary-foreground: hsl(222 47% 11%);
+  
+  --secondary: hsl(217 33% 17%);
+  --secondary-foreground: hsl(210 40% 98%);
+  
+  --muted: hsl(217 33% 17%);
+  --muted-foreground: hsl(215 20% 65%);
+  
+  --accent: hsl(280 100% 70%); /* Purple Neon */
+  --accent-foreground: hsl(210 40% 98%);
+  
+  --destructive: hsl(0 62% 30%);
+  --destructive-foreground: hsl(210 40% 98%);
+  
+  --border: hsl(217 33% 25%);
+  --input: hsl(217 33% 17%);
+  --ring: hsl(186 100% 50%);
+}
+
+/* Light Theme */
+.theme-light {
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(222 47% 11%);
+  
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(222 47% 11%);
+  
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(222 47% 11%);
+  
+  --primary: hsl(221.2 83.2% 53.3%); /* Blue */
+  --primary-foreground: hsl(210 40% 98%);
+  
+  --secondary: hsl(210 40% 96.1%);
+  --secondary-foreground: hsl(222.2 47.4% 11.2%);
+  
+  --muted: hsl(210 40% 96.1%);
+  --muted-foreground: hsl(215.4 16.3% 46.9%);
+  
+  --accent: hsl(210 40% 96.1%);
+  --accent-foreground: hsl(222.2 47.4% 11.2%);
+  
+  --destructive: hsl(0 84.2% 60.2%);
+  --destructive-foreground: hsl(210 40% 98%);
+  
+  --border: hsl(214.3 31.8% 91.4%);
+  --input: hsl(214.3 31.8% 91.4%);
+  --ring: hsl(221.2 83.2% 53.3%);
+}
+
+/* Dracula Theme */
+.theme-dracula {
+  --background: hsl(231 15% 18%);
+  --foreground: hsl(60 30% 96%);
+  
+  --card: hsl(231 15% 18%);
+  --card-foreground: hsl(60 30% 96%);
+  
+  --popover: hsl(231 15% 18%);
+  --popover-foreground: hsl(60 30% 96%);
+  
+  --primary: hsl(265 89% 78%); /* Purple */
+  --primary-foreground: hsl(231 15% 18%);
+  
+  --secondary: hsl(232 14% 31%);
+  --secondary-foreground: hsl(60 30% 96%);
+  
+  --muted: hsl(232 14% 31%);
+  --muted-foreground: hsl(231 15% 70%);
+  
+  --accent: hsl(326 100% 74%); /* Pink */
+  --accent-foreground: hsl(231 15% 18%);
+  
+  --destructive: hsl(0 100% 67%);
+  --destructive-foreground: hsl(60 30% 96%);
+  
+  --border: hsl(232 14% 31%);
+  --input: hsl(232 14% 31%);
+  --ring: hsl(265 89% 78%);
+}
+
+/* Monokai Theme */
+.theme-monokai {
+  --background: hsl(0 0% 16%); /* #272822 */
+  --foreground: hsl(0 0% 95%);
+  
+  --card: hsl(0 0% 16%);
+  --card-foreground: hsl(0 0% 95%);
+  
+  --popover: hsl(0 0% 16%);
+  --popover-foreground: hsl(0 0% 95%);
+  
+  --primary: hsl(70 100% 60%); /* Green/Yellow */
+  --primary-foreground: hsl(0 0% 16%);
+  
+  --secondary: hsl(0 0% 25%);
+  --secondary-foreground: hsl(0 0% 95%);
+  
+  --muted: hsl(0 0% 25%);
+  --muted-foreground: hsl(0 0% 60%);
+  
+  --accent: hsl(330 100% 50%); /* Pink */
+  --accent-foreground: hsl(0 0% 95%);
+  
+  --destructive: hsl(0 100% 50%);
+  --destructive-foreground: hsl(0 0% 95%);
+  
+  --border: hsl(0 0% 30%);
+  --input: hsl(0 0% 25%);
+  --ring: hsl(70 100% 60%);
 }
 
 @layer base {
@@ -48,21 +172,21 @@
   }
 }
 
-/* Custom Scrollbar for that IDE feel */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: hsl(222 47% 11%);
+  background: var(--background);
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(217 33% 25%);
+  background: var(--border);
   border-radius: 5px;
-  border: 2px solid hsl(222 47% 11%);
+  border: 2px solid var(--background);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(217 33% 35%);
+  background: var(--muted-foreground);
 }
 
 .glass-panel {

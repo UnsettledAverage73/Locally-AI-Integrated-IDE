@@ -178,5 +178,31 @@ export const git = {
     commit: async (message: string): Promise<void> => {
         if (USE_MOCKS) return;
         await api.post("/git/commit", { message });
+    },
+    getBranch: async (): Promise<{ branch: string }> => {
+        if (USE_MOCKS) return { branch: "main" };
+        const { data } = await api.get("/git/branch");
+        return data;
+    },
+    getBranches: async (): Promise<{ branches: string[] }> => {
+        if (USE_MOCKS) return { branches: ["main", "dev", "feature/test"] };
+        const { data } = await api.get("/git/branches");
+        return data;
+    },
+    checkout: async (name: string): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/branch/checkout", { name });
+    },
+    createBranch: async (name: string): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/branch/create", { name });
+    },
+    push: async (): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/push");
+    },
+    pull: async (): Promise<void> => {
+        if (USE_MOCKS) return;
+        await api.post("/git/pull");
     }
 };

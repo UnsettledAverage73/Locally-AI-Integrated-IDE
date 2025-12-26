@@ -5,26 +5,33 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Command, Settings, Files, GitBranch } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
+import EditorTabs from "@/components/Editor/EditorTabs";
 import ChatPanel from "@/components/AI/ChatPanel";
 import Terminal from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SourceControl from "@/components/Git/SourceControl";
 import { Button } from "@/components/ui/button";
-import { fs, rag, llm } from "@/api/client";
+import { fs, rag, llm, git } from "@/api/client";
 import { FileEntry, ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { DownloadProvider } from "@/context/DownloadContext";
 import { DownloadWidget } from "@/components/DownloadWidget";
+
+interface OpenFile {
+  path: string;
+  content: string;
+}
 
 function App() {
   const { toast } = useToast();
   
   // State
   const [fileTree, setFileTree] = useState<FileEntry[]>([]);
+  const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'git'>('explorer');
+  const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
   
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
@@ -35,6 +42,8 @@ function App() {
   const [hasCheckedOllama, setHasCheckedOllama] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  const activeFileContent = openFiles.find((f) => f.path === activeFile)?.content || "";
+
   // Initial Boot
   useEffect(() => {
     const boot = async () => {
@@ -44,14 +53,28 @@ function App() {
         setOllamaAvailable(ollamaStatus.available);
         setHasCheckedOllama(true);
 
+        // Load Theme
+        const savedTheme = localStorage.getItem("ui_theme") || "default";
+        document.documentElement.className = savedTheme === "default" ? "" : savedTheme;
+
         // Fetch Ollama models
         if (ollamaStatus.available) {
           const { models } = await llm.models();
           setOllamaModels(models);
         }
 
+        // Fetch File Tree
         const { entries } = await fs.readDirectory("./");
         setFileTree(entries);
+
+        // Fetch Git Branch
+        try {
+            const { branch } = await git.getBranch();
+            setCurrentBranch(branch);
+        } catch (e) {
+            setCurrentBranch("offline");
+        }
+
         setIsBooting(false);
       } catch (error) {
         toast({
@@ -66,10 +89,17 @@ function App() {
   }, []);
 
   const handleFileClick = async (path: string) => {
-    try {
+    // Check if file is already open
+    const existingFile = openFiles.find((f) => f.path === path);
+    if (existingFile) {
       setActiveFile(path);
+      return;
+    }
+
+    try {
       const { content } = await fs.readFile(path);
-      setFileContent(content);
+      setOpenFiles((prev) => [...prev, { path, content }]);
+      setActiveFile(path);
     } catch (error) {
       toast({
         title: "Error reading file",
@@ -79,14 +109,39 @@ function App() {
     }
   };
 
+  const handleTabClose = (path: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    setOpenFiles((prev) => {
+      const newFiles = prev.filter((f) => f.path !== path);
+      
+      // If we closed the active file, switch to another one
+      if (activeFile === path) {
+        if (newFiles.length > 0) {
+          // Switch to the last opened file or the previous one
+          const index = prev.findIndex((f) => f.path === path);
+          const newActive = newFiles[Math.max(0, index - 1)];
+          setActiveFile(newActive.path);
+        } else {
+          setActiveFile(null);
+        }
+      }
+      
+      return newFiles;
+    });
+  };
+
   const handleEditorChange = (value: string | undefined) => {
-    if (value !== undefined) setFileContent(value);
+    if (value === undefined || !activeFile) return;
+    setOpenFiles((prev) =>
+      prev.map((f) => (f.path === activeFile ? { ...f, content: value } : f))
+    );
   };
 
   const handleSave = async () => {
     if (!activeFile) return;
     try {
-      await fs.writeFile(activeFile, fileContent);
+      await fs.writeFile(activeFile, activeFileContent);
       toast({
         title: "File Saved",
         description: `Successfully saved ${activeFile}`,
@@ -105,7 +160,7 @@ function App() {
     if (!activeFile) return;
     setIsIndexing(true);
     try {
-      await rag.indexFile(activeFile, fileContent);
+      await rag.indexFile(activeFile, activeFileContent);
       toast({
         title: "Context Updated",
         description: "File successfully indexed by RAG.",
@@ -133,7 +188,10 @@ function App() {
 
     try {
         await fs.writeFile(activeFile, code);
-        setFileContent(code); // Update editor immediately
+        // Update openFiles state
+        setOpenFiles((prev) =>
+            prev.map((f) => (f.path === activeFile ? { ...f, content: code } : f))
+        );
         toast({
             title: "Code Applied",
             description: `Updated ${activeFile} successfully.`,
@@ -267,14 +325,37 @@ function App() {
               <ResizablePanel defaultSize={55} minSize={30}>
                   <ResizablePanelGroup direction="vertical">
                       <ResizablePanel defaultSize={75} minSize={20}>
-                          <CodeEditor 
-                              content={fileContent} 
-                              filePath={activeFile} 
-                              onChange={handleEditorChange}
-                              onSave={handleSave}
-                              onIndex={handleIndex}
-                              isIndexing={isIndexing}
-                          />
+                          <div className="h-full flex flex-col">
+                            {openFiles.length > 0 ? (
+                                <>
+                                    <EditorTabs 
+                                        files={openFiles.map(f => f.path)} 
+                                        activeFile={activeFile} 
+                                        onTabClick={(path) => setActiveFile(path)} 
+                                        onTabClose={handleTabClose} 
+                                    />
+                                    <div className="flex-1 overflow-hidden">
+                                        <CodeEditor 
+                                            content={activeFileContent} 
+                                            filePath={activeFile} 
+                                            onChange={handleEditorChange}
+                                            onSave={handleSave}
+                                            onIndex={handleIndex}
+                                            isIndexing={isIndexing}
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                <CodeEditor 
+                                    content="" 
+                                    filePath={null} 
+                                    onChange={() => {}}
+                                    onSave={() => {}}
+                                    onIndex={() => {}}
+                                    isIndexing={false}
+                                />
+                            )}
+                          </div>
                       </ResizablePanel>
                       
                       <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
@@ -307,7 +388,7 @@ function App() {
          {/* Status Bar */}
          <footer className="h-6 border-t border-border bg-card text-xs flex items-center px-4 justify-between text-muted-foreground font-mono">
              <div className="flex space-x-4">
-                <span>Branch: <span className="text-primary">main</span></span>
+                <span>Branch: <span className="text-primary">{currentBranch}</span></span>
                 <span>Errors: 0</span>
              </div>
              <div>

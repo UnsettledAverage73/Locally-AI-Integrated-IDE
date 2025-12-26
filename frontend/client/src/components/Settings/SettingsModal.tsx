@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Assuming Tabs component exists or use simple state
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { Paintbrush, Moon, Sun, Monitor } from "lucide-react";
 import axios from "axios";
 import ModelSettings from "./ModelSettings";
 
@@ -20,6 +21,13 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+const THEMES = [
+  { id: "default", name: "Midnight (Default)", icon: Moon },
+  { id: "theme-light", name: "Light", icon: Sun },
+  { id: "theme-dracula", name: "Dracula", icon: Paintbrush },
+  { id: "theme-monokai", name: "Monokai", icon: Monitor },
+];
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { toast } = useToast();
@@ -29,6 +37,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [awsSecretKey, setAwsSecretKey] = useState("");
   const [awsSessionToken, setAwsSessionToken] = useState("");
   const [awsRegion, setAwsRegion] = useState("us-east-1");
+  const [currentTheme, setCurrentTheme] = useState("default");
 
   useEffect(() => {
     if (isOpen) {
@@ -36,11 +45,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         axios.get("http://localhost:8000/config/status").then((res) => {
             setMode(res.data.mode);
         }).catch(err => console.error("Failed to fetch config", err));
+        
+        // Load Theme
+        const savedTheme = localStorage.getItem("ui_theme") || "default";
+        setCurrentTheme(savedTheme);
     }
   }, [isOpen]);
 
   const handleSave = async () => {
     try {
+      // Save Config
       await axios.post("http://localhost:8000/config/update", {
         mode,
         aws_access_key: awsAccessKey || undefined,
@@ -49,9 +63,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         aws_region: awsRegion,
       });
       
+      // Save Theme
+      localStorage.setItem("ui_theme", currentTheme);
+      document.documentElement.className = currentTheme === "default" ? "" : currentTheme;
+
       toast({
         title: "Settings Saved",
-        description: `Switched to ${mode === 'local' ? 'Local (Ollama)' : 'Cloud (Bedrock)'} mode.`,
+        description: `Configuration and appearance updated.`,
         className: "bg-green-500/10 border-green-500/50 text-green-500",
       });
       onClose();
@@ -64,18 +82,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
+  const applyThemePreview = (themeId: string) => {
+      setCurrentTheme(themeId);
+      document.documentElement.className = themeId === "default" ? "" : themeId;
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur border-border text-foreground max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Configure your environment and AI models.</DialogDescription>
+          <DialogDescription>Configure your environment, AI models, and appearance.</DialogDescription>
         </DialogHeader>
         
         <Tabs defaultValue="environment" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="environment">Environment</TabsTrigger>
-                <TabsTrigger value="models">Models & Profiles</TabsTrigger>
+                <TabsTrigger value="models">Models</TabsTrigger>
+                <TabsTrigger value="appearance">Appearance</TabsTrigger>
             </TabsList>
 
             <TabsContent value="environment" className="py-4">
@@ -147,11 +171,37 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <TabsContent value="models" className="py-4">
                 <ModelSettings />
             </TabsContent>
+
+            <TabsContent value="appearance" className="py-4">
+                <div className="space-y-4">
+                    <Label>Color Theme</Label>
+                    <div className="grid grid-cols-2 gap-4">
+                        {THEMES.map((theme) => {
+                            const Icon = theme.icon;
+                            return (
+                                <div 
+                                    key={theme.id}
+                                    onClick={() => applyThemePreview(theme.id)}
+                                    className={`
+                                        cursor-pointer flex items-center p-3 rounded-md border transition-all
+                                        ${currentTheme === theme.id ? "border-primary bg-primary/10" : "border-border hover:bg-accent/5"}
+                                    `}
+                                >
+                                    <div className={`p-2 rounded-full mr-3 ${currentTheme === theme.id ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                                        <Icon className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-sm font-medium">{theme.name}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </TabsContent>
         </Tabs>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Close</Button>
-          {activeTab === "environment" && <Button onClick={handleSave}>Save Changes</Button>}
+          <Button onClick={handleSave}>Save Changes</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

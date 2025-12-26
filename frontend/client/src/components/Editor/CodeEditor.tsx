@@ -72,8 +72,8 @@ export default function CodeEditor({
             return { items: [] };
           }
 
-          // Wait a tiny bit to see if user keeps typing
-          await new Promise(resolve => setTimeout(resolve, 50));
+          // Wait a bit to see if user keeps typing (debounce)
+          await new Promise(resolve => setTimeout(resolve, 300));
           if (token.isCancellationRequested) {
             return { items: [] };
           }
@@ -104,6 +104,7 @@ export default function CodeEditor({
           }
         },
         freeInlineCompletions: () => {},
+        disposeInlineCompletions: () => {},
       }
     );
   };
