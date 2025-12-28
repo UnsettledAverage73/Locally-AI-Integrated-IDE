@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from services import OllamaService, RAGService
 from bedrock_service import BedrockService
 from git_service import GitService
+from optimizer_service import OptimizerService
 
 app = FastAPI()
 
@@ -43,6 +44,7 @@ app_state = {
 ollama_service = OllamaService()
 rag_service = RAGService(ollama_service=ollama_service)
 git_service = GitService(ollama_service=ollama_service)
+optimizer = OptimizerService()
 
 # --- DATA MODELS ---
 
@@ -95,6 +97,11 @@ class GitStageRequest(BaseModel):
 
 class GitCommitRequest(BaseModel):
     message: str
+
+class OptimizeRequest(BaseModel):
+    file_path: str
+    instruction: str
+    model: str | None = "deepseek-coder"
 
 # --- ENDPOINTS ---
 
@@ -159,6 +166,49 @@ async def git_generate_message():
 async def git_commit(request: GitCommitRequest):
     try:
         git_service.commit(request.message)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/git/branch")
+async def git_get_branch():
+    return {"branch": git_service.get_current_branch()}
+
+@app.get("/git/branches")
+async def git_list_branches():
+    return {"branches": git_service.get_branches()}
+
+class GitBranchRequest(BaseModel):
+    name: str
+
+@app.post("/git/branch/checkout")
+async def git_checkout_branch(request: GitBranchRequest):
+    try:
+        git_service.checkout_branch(request.name)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/git/branch/create")
+async def git_create_branch(request: GitBranchRequest):
+    try:
+        git_service.create_branch(request.name)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/git/push")
+async def git_push():
+    try:
+        git_service.push()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/git/pull")
+async def git_pull():
+    try:
+        git_service.pull()
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -371,6 +421,13 @@ async def fs_apply_diff(request: WriteFileRequest):
         return {"status": "success", "message": f"Successfully applied changes to {request.path}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/files/optimize")
+def optimize_file_endpoint(req: OptimizeRequest):
+    """
+    Triggers the AI to read, fix, and overwrite a specific file.
+    """
+    return optimizer.optimize_file(req.file_path, req.instruction, req.model)
 
 # --- TERMINAL ENDPOINT ---
 
