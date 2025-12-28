@@ -89,31 +89,31 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur border-border text-foreground max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+          <DialogTitle className="text-2xl font-light tracking-wide bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Settings</DialogTitle>
           <DialogDescription>Configure your environment, AI models, and appearance.</DialogDescription>
         </DialogHeader>
         
-        <Tabs defaultValue="environment" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="environment">Environment</TabsTrigger>
-                <TabsTrigger value="models">Models</TabsTrigger>
-                <TabsTrigger value="appearance">Appearance</TabsTrigger>
+        <Tabs defaultValue="environment" value={activeTab} onValueChange={setActiveTab} className="w-full mt-4">
+            <TabsList className="grid w-full grid-cols-3 bg-white/5 border border-white/5">
+                <TabsTrigger value="environment" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">Environment</TabsTrigger>
+                <TabsTrigger value="models" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">Models</TabsTrigger>
+                <TabsTrigger value="appearance" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">Appearance</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="environment" className="py-4">
+            <TabsContent value="environment" className="py-4 space-y-4">
                 <div className="grid gap-6">
                   <div className="grid gap-3">
-                    <Label>AI Backend</Label>
+                    <Label className="text-lg font-light">AI Backend</Label>
                     <RadioGroup defaultValue={mode} value={mode} onValueChange={setMode} className="flex gap-4">
-                      <div className="flex items-center space-x-2 border border-border p-3 rounded-md w-full hover:bg-accent/5 cursor-pointer">
-                        <RadioGroupItem value="local" id="local" />
-                        <Label htmlFor="local" className="cursor-pointer">Local (Ollama)</Label>
+                      <div className="flex items-center space-x-2 border border-white/10 bg-white/5 p-4 rounded-xl w-full hover:bg-white/10 transition-colors cursor-pointer group">
+                        <RadioGroupItem value="local" id="local" className="border-primary text-primary" />
+                        <Label htmlFor="local" className="cursor-pointer group-hover:text-primary transition-colors">Local (Ollama)</Label>
                       </div>
-                      <div className="flex items-center space-x-2 border border-border p-3 rounded-md w-full hover:bg-accent/5 cursor-pointer">
-                        <RadioGroupItem value="cloud" id="cloud" />
-                        <Label htmlFor="cloud" className="cursor-pointer">Cloud (AWS)</Label>
+                      <div className="flex items-center space-x-2 border border-white/10 bg-white/5 p-4 rounded-xl w-full hover:bg-white/10 transition-colors cursor-pointer group">
+                        <RadioGroupItem value="cloud" id="cloud" className="border-primary text-primary" />
+                        <Label htmlFor="cloud" className="cursor-pointer group-hover:text-primary transition-colors">Cloud (AWS)</Label>
                       </div>
                     </RadioGroup>
                   </div>
