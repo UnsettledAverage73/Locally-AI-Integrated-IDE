@@ -206,3 +206,14 @@ export const git = {
         await api.post("/git/pull");
     }
 };
+
+export const optimizer = {
+    optimizeFile: async (path: string, instruction: string, model: string = "deepseek-coder"): Promise<{ status: string; message: string }> => {
+        if (USE_MOCKS) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            return { status: "success", message: "Mock optimization complete" };
+        }
+        const { data } = await api.post("/files/optimize", { file_path: path, instruction, model });
+        return data;
+    }
+};
