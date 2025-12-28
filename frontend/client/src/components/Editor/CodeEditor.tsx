@@ -1,9 +1,9 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { Save, BrainCircuit } from "lucide-react";
+import { Save, BrainCircuit, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { llm } from "@/api/client";
+import { llm, optimizer } from "@/api/client";
 
 interface CodeEditorProps {
   content: string;
@@ -25,6 +25,23 @@ export default function CodeEditor({
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const completionProviderRef = useRef<any>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  const handleMagicFix = async () => {
+    if (!filePath) return;
+    if (!confirm(`⚠️ This will AI-rewrite ${filePath}. Continue?`)) return;
+
+    setIsOptimizing(true);
+    try {
+      const model = localStorage.getItem("ai_model") || "deepseek-coder";
+      await optimizer.optimizeFile(filePath, "Fix syntax errors, add missing imports, and optimize.", model);
+      alert("✨ Code Optimized Successfully! Please switch tabs or reopen the file to see changes.");
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -127,6 +144,16 @@ export default function CodeEditor({
             <span className="text-sm font-mono text-muted-foreground">{filePath}</span>
         </div>
         <div className="flex items-center space-x-2">
+            <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleMagicFix}
+                disabled={isOptimizing}
+                className="text-xs h-7 gap-1.5 hover:bg-purple-500/20 hover:text-purple-400 text-purple-400"
+            >
+                {isOptimizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                Auto-Fix
+            </Button>
             <Button 
                 variant="ghost" 
                 size="sm" 
