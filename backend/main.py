@@ -10,8 +10,10 @@ import select
 import struct
 import fcntl
 import termios
-import psutil # Added for system stats
+import psutil  # Added for system stats
+from telemetry import telemetry
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import time
 
 # --- SERVICES ---
 # Ensure you have created bedrock_service.py and services.py!
@@ -25,10 +27,10 @@ app = FastAPI()
 # --- CONFIGURATION ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5000", "http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"], 
-    allow_headers=["*"], 
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- APP STATE (IN-MEMORY SECURITY) ---
@@ -36,8 +38,8 @@ app.add_middleware(
 # They are never written to disk, databases, or logs.
 # They persist only for the duration of the backend process.
 app_state = {
-    "mode": "local", # 'local' or 'cloud'
-    "aws_creds": None # { "access_key": "...", "secret_key": "...", "session_token": "..." }
+    "mode": "local",  # 'local' or 'cloud'
+    "aws_creds": None,  # { "access_key": "...", "secret_key": "...", "session_token": "..." }
 }
 
 # --- SERVICE INITIALIZATION ---
@@ -48,14 +50,17 @@ optimizer = OptimizerService()
 
 # --- DATA MODELS ---
 
+
 class ChatMessage(BaseModel):
-    role: str       
-    content: str    
+    role: str
+    content: str
+
 
 class ChatRequest(BaseModel):
-    model: str      
-    messages: List[Dict[str, str]] 
-    options: Dict[str, Any] | None = None # Added options
+    model: str
+    messages: List[Dict[str, str]]
+    options: Dict[str, Any] | None = None  # Added options
+
 
 class CompletionRequest(BaseModel):
     model: str
@@ -63,75 +68,88 @@ class CompletionRequest(BaseModel):
     suffix: str
     options: Dict[str, Any] | None = None
 
+
 class ConfigRequest(BaseModel):
-    mode: str 
+    mode: str
     aws_access_key: str | None = None
     aws_secret_key: str | None = None
     aws_session_token: str | None = None  # <--- Add this field
     aws_region: str | None = "us-east-1"
 
+
 class GenerateEmbeddingRequest(BaseModel):
-    text: str       
+    text: str
+
 
 class IndexFileRequest(BaseModel):
-    file_path: str  
-    content: str    
+    file_path: str
+    content: str
+
 
 class GetContextRequest(BaseModel):
     query: str
-    current_file: str | None = None 
+    current_file: str | None = None
+
 
 class FileOperationRequest(BaseModel):
-    path: str       
+    path: str
+
 
 class WriteFileRequest(FileOperationRequest):
-    content: str    
+    content: str
+
 
 class DiffRequest(BaseModel):
     original_content: str
     proposed_content: str
-    file_path: str # Added to pass file path to diff
+    file_path: str  # Added to pass file path to diff
+
 
 class GitStageRequest(BaseModel):
     path: str
 
+
 class GitCommitRequest(BaseModel):
     message: str
+
 
 class OptimizeRequest(BaseModel):
     file_path: str
     instruction: str
     model: str | None = "deepseek-coder"
 
+
 # --- ENDPOINTS ---
+
 
 @app.get("/")
 async def read_root():
     return {"message": "LocalDev Backend is running!"}
 
+
 # 2. Update the Config Endpoint
 @app.post("/config/update")
 async def update_config(request: ConfigRequest):
     app_state["mode"] = request.mode
-    
+
     if request.aws_access_key and request.aws_secret_key:
         app_state["aws_creds"] = {
             "access_key": request.aws_access_key,
             "secret_key": request.aws_secret_key,
-            "session_token": request.aws_session_token, # <--- Store it
-            "region": request.aws_region
+            "session_token": request.aws_session_token,  # <--- Store it
+            "region": request.aws_region,
         }
-    
+
     return {"status": "success", "mode": app_state["mode"]}
+
 
 @app.get("/config/status")
 async def get_config_status():
-    return {
-        "mode": app_state["mode"], 
-        "has_keys": app_state["aws_creds"] is not None
-    }
+    return {"mode": app_state["mode"], "has_keys": app_state["aws_creds"] is not None}
+
 
 # --- GIT ENDPOINTS ---
+
 
 @app.get("/git/status")
 async def git_status():
@@ -141,6 +159,7 @@ async def git_status():
     except Exception as e:
         return {"error": str(e), "changes": []}
 
+
 @app.post("/git/stage")
 async def git_stage(request: GitStageRequest):
     try:
@@ -148,6 +167,7 @@ async def git_stage(request: GitStageRequest):
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/git/unstage")
 async def git_unstage(request: GitStageRequest):
@@ -157,10 +177,12 @@ async def git_unstage(request: GitStageRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/git/generate-message")
 async def git_generate_message():
     message = await git_service.generate_commit_message()
     return {"message": message}
+
 
 @app.post("/git/commit")
 async def git_commit(request: GitCommitRequest):
@@ -170,16 +192,20 @@ async def git_commit(request: GitCommitRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/git/branch")
 async def git_get_branch():
     return {"branch": git_service.get_current_branch()}
+
 
 @app.get("/git/branches")
 async def git_list_branches():
     return {"branches": git_service.get_branches()}
 
+
 class GitBranchRequest(BaseModel):
     name: str
+
 
 @app.post("/git/branch/checkout")
 async def git_checkout_branch(request: GitBranchRequest):
@@ -189,6 +215,7 @@ async def git_checkout_branch(request: GitBranchRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/git/branch/create")
 async def git_create_branch(request: GitBranchRequest):
     try:
@@ -196,6 +223,7 @@ async def git_create_branch(request: GitBranchRequest):
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/git/push")
 async def git_push():
@@ -205,6 +233,7 @@ async def git_push():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/git/pull")
 async def git_pull():
     try:
@@ -213,20 +242,26 @@ async def git_pull():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # --- OLLAMA / CHAT ENDPOINTS ---
+
 
 @app.get("/ollama/check")
 async def ollama_check():
+    start_time = time.time()
     available = await ollama_service.check_connection()
     return {"available": available}
+
 
 @app.get("/ollama/models")
 async def ollama_models():
     models = await ollama_service.list_models()
     return {"models": models}
 
+
 class PullModelRequest(BaseModel):
     model: str
+
 
 @app.post("/ollama/pull")
 async def ollama_pull(request: PullModelRequest):
@@ -239,16 +274,17 @@ async def ollama_pull(request: PullModelRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.websocket("/ws/ollama/pull")
 async def ollama_pull_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         model_name = await websocket.receive_text()
         print(f"Starting pull for: {model_name}")
-        
+
         async for progress in ollama_service.pull_model_stream(model_name):
             await websocket.send_json(progress)
-            
+
         await websocket.send_json({"status": "done"})
     except Exception as e:
         print(f"WebSocket Error: {e}")
@@ -259,6 +295,7 @@ async def ollama_pull_ws(websocket: WebSocket):
     finally:
         await websocket.close()
 
+
 @app.delete("/ollama/models/{model_name}")
 async def ollama_delete(model_name: str):
     try:
@@ -267,17 +304,19 @@ async def ollama_delete(model_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/system-resources")
 async def get_system_resources():
     mem = psutil.virtual_memory()
-    disk = psutil.disk_usage('/')
-    
+    disk = psutil.disk_usage("/")
+
     return {
         "ram_total_gb": round(mem.total / (1024**3), 2),
         "ram_available_gb": round(mem.available / (1024**3), 2),
         "disk_total_gb": round(disk.total / (1024**3), 2),
-        "disk_free_gb": round(disk.free / (1024**3), 2)
+        "disk_free_gb": round(disk.free / (1024**3), 2),
     }
+
 
 # 3. Update the Chat Handler
 @app.post("/ollama/chat")
@@ -285,28 +324,55 @@ async def ollama_chat(request: ChatRequest):
     """
     Smart Chat Handler: Decides between Local (Ollama) or Cloud (Bedrock).
     """
-    
-    # 1. Check if we should use Cloud Mode
-    if app_state["mode"] == "cloud" and app_state["aws_creds"]:
-        try:
-            # Initialize with Session Token
-            bedrock = BedrockService(
-                aws_access_key=app_state["aws_creds"]["access_key"],
-                aws_secret_key=app_state["aws_creds"]["secret_key"],
-                aws_session_token=app_state["aws_creds"]["session_token"], # <--- Pass it here
-                region=app_state["aws_creds"]["region"]
-            )
-            print("☁️ Using Cloud Brain (Bedrock)...")
-            content = await bedrock.chat_completion(request.messages)
-            return {"content": content}
-            
-        except Exception as e:
-            return {"content": f"⚠️ Cloud Error: {str(e)}"}
+    start_time = time.time()
+    response_content = ""
+    try:
+        # 1. Check if we should use Cloud Mode
+        if app_state["mode"] == "cloud" and app_state["aws_creds"]:
+            try:
+                # Initialize with Session Token
+                bedrock = BedrockService(
+                    aws_access_key=app_state["aws_creds"]["access_key"],
+                    aws_secret_key=app_state["aws_creds"]["secret_key"],
+                    aws_session_token=app_state["aws_creds"][
+                        "session_token"
+                    ],  # <--- Pass it here
+                    region=app_state["aws_creds"]["region"],
+                )
+                print("☁️ Using Cloud Brain (Bedrock)...")
+                response_content = await bedrock.chat_completion(request.messages)
 
-    # 2. Default: Local Mode
-    print("💻 Using Local Brain (Ollama)...")
-    response_content = await ollama_service.chat_completion(request.model, request.messages, request.options)
-    return {"content": response_content}
+            except Exception as e:
+                response_content = f"⚠️ Cloud Error: {str(e)}"
+                raise HTTPException(status_code=500, detail=response_content)
+
+        # 2. Default: Local Mode
+        else:
+            print("💻 Using Local Brain (Ollama)...")
+            response_content = await ollama_service.chat_completion(
+                request.model, request.messages, request.options
+            )
+
+        telemetry.log_trace(
+            feature="chat",
+            model=request.model,
+            start_time=start_time,
+            input_text=str(request.messages),
+            output_text=response_content,
+        )
+        return {"content": response_content}
+
+    except Exception as e:
+        telemetry.log_trace(
+            feature="chat",
+            model=request.model,
+            start_time=start_time,
+            input_text=str(request.messages),
+            output_text=str(e),
+            success=False,
+        )
+        raise e
+
 
 @app.post("/ollama/complete")
 async def ollama_complete(request: CompletionRequest):
@@ -314,12 +380,10 @@ async def ollama_complete(request: CompletionRequest):
     Fast FIM completion for ghost text.
     """
     content = await ollama_service.generate_completion(
-        request.model, 
-        request.prefix, 
-        request.suffix, 
-        request.options
+        request.model, request.prefix, request.suffix, request.options
     )
     return {"content": content}
+
 
 @app.post("/ollama/generate_embedding")
 async def ollama_generate_embedding(request: GenerateEmbeddingRequest):
@@ -329,15 +393,18 @@ async def ollama_generate_embedding(request: GenerateEmbeddingRequest):
 
 # --- RAG (MEMORY) ENDPOINTS ---
 
+
 @app.post("/rag/index")
 async def rag_index_file(request: IndexFileRequest):
     await rag_service.index_file(request.file_path, request.content)
     return {"status": "indexed"}
 
+
 @app.post("/rag/context")
 async def rag_get_context(request: GetContextRequest):
     context = await rag_service.get_context(request.query, request.current_file)
     return {"context": context}
+
 
 @app.post("/rag/clear")
 async def rag_clear_index():
@@ -347,26 +414,30 @@ async def rag_clear_index():
 
 # --- FILE SYSTEM ENDPOINTS ---
 
+
 @app.post("/fs/read-directory")
 async def fs_read_directory(request: FileOperationRequest):
     try:
         full_path = os.path.abspath(request.path)
         if not os.path.exists(full_path):
             raise HTTPException(status_code=404, detail="Directory not found")
-        
+
         entries = []
         with os.scandir(full_path) as it:
             for entry in it:
                 stats = entry.stat()
-                entries.append({
-                    "name": entry.name,
-                    "path": entry.path,
-                    "isDirectory": entry.is_dir(),
-                    "size": stats.st_size,
-                })
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "path": entry.path,
+                        "isDirectory": entry.is_dir(),
+                        "size": stats.st_size,
+                    }
+                )
         return {"entries": entries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/fs/read-file")
 async def fs_read_file(request: FileOperationRequest):
@@ -374,12 +445,13 @@ async def fs_read_file(request: FileOperationRequest):
         full_path = os.path.abspath(request.path)
         if not os.path.exists(full_path) or not os.path.isfile(full_path):
             raise HTTPException(status_code=404, detail="File not found")
-        
+
         with open(full_path, "r", encoding="utf-8") as f:
             content = f.read()
         return {"content": content}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/fs/write-file")
 async def fs_write_file(request: WriteFileRequest):
@@ -392,21 +464,23 @@ async def fs_write_file(request: WriteFileRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/fs/diff")
 async def fs_diff_content(request: DiffRequest):
     """Generates a unified diff between original and proposed content."""
     original_lines = request.original_content.splitlines(keepends=True)
     proposed_lines = request.proposed_content.splitlines(keepends=True)
-    
+
     # Generate a unified diff
     diff = difflib.unified_diff(
         original_lines,
         proposed_lines,
         fromfile=f"a/{request.file_path}",
         tofile=f"b/{request.file_path}",
-        lineterm='' # Prevent extra newlines
+        lineterm="",  # Prevent extra newlines
     )
     return {"diff": "".join(diff)}
+
 
 @app.post("/fs/apply-diff")
 async def fs_apply_diff(request: WriteFileRequest):
@@ -415,12 +489,16 @@ async def fs_apply_diff(request: WriteFileRequest):
         full_path = os.path.abspath(request.path)
         if not os.path.exists(full_path) or not os.path.isfile(full_path):
             raise HTTPException(status_code=404, detail="File not found")
-        
+
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(request.content)
-        return {"status": "success", "message": f"Successfully applied changes to {request.path}"}
+        return {
+            "status": "success",
+            "message": f"Successfully applied changes to {request.path}",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/files/optimize")
 def optimize_file_endpoint(req: OptimizeRequest):
@@ -429,15 +507,17 @@ def optimize_file_endpoint(req: OptimizeRequest):
     """
     return optimizer.optimize_file(req.file_path, req.instruction, req.model)
 
+
 # --- TERMINAL ENDPOINT ---
+
 
 @app.websocket("/ws/terminal")
 async def terminal_websocket(websocket: WebSocket):
     await websocket.accept()
-    
+
     # Spawn a pseudo-terminal
     master_fd, slave_fd = pty.openpty()
-    
+
     # Start the shell (bash)
     pid = os.fork()
     if pid == 0:
@@ -448,14 +528,14 @@ async def terminal_websocket(websocket: WebSocket):
         os.dup2(slave_fd, 2)
         os.close(master_fd)
         os.close(slave_fd)
-        
+
         # Default to bash
         shell = os.environ.get("SHELL", "/bin/bash")
         os.execv(shell, [shell])
     else:
         # Parent process (FastAPI)
         os.close(slave_fd)
-        
+
         loop = asyncio.get_event_loop()
 
         async def read_from_pty():
@@ -465,13 +545,13 @@ async def terminal_websocket(websocket: WebSocket):
                     return os.read(master_fd, 10240)
                 except OSError:
                     return b""
-            
+
             while True:
                 output = await loop.run_in_executor(None, _read)
                 if not output:
                     break
                 try:
-                    await websocket.send_text(output.decode(errors='replace'))
+                    await websocket.send_text(output.decode(errors="replace"))
                 except:
                     break
 
@@ -490,7 +570,7 @@ async def terminal_websocket(websocket: WebSocket):
                         except Exception as e:
                             print(f"Resize Error: {e}")
                         continue
-                        
+
                     os.write(master_fd, data.encode())
             except WebSocketDisconnect:
                 pass
@@ -500,9 +580,11 @@ async def terminal_websocket(websocket: WebSocket):
         # Run tasks concurrently
         task_read = asyncio.create_task(read_from_pty())
         task_write = asyncio.create_task(write_to_pty())
-        
+
         try:
-            await asyncio.wait([task_read, task_write], return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(
+                [task_read, task_write], return_when=asyncio.FIRST_COMPLETED
+            )
         finally:
             # Cleanup
             task_read.cancel()
@@ -518,8 +600,15 @@ async def terminal_websocket(websocket: WebSocket):
             except:
                 pass
 
+
+@app.get("/ops/stats")
+async def get_ops_stats():
+    return telemetry.get_stats()
+
+
 if __name__ == "__main__":
     import uvicorn
+
     # The 'app' must match your FastAPI variable name
     # '0.0.0.0' or '127.0.0.1' is fine. Port 8000 is standard.
     uvicorn.run(app, host="127.0.0.1", port=8000)
