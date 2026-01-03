@@ -37,7 +37,7 @@ const MOCK_FILES: Record<string, string> = {
 // Toggle to use mocks if backend is unreachable
 const USE_MOCKS = false;
 
-const api = axios.create({
+export const apiClient = axios.create({
   baseURL: "http://localhost:8000",
 });
 
@@ -50,7 +50,7 @@ export const fs = {
       // Simple mock for subdirectories - just return empty or find in mock tree if implemented recursively
       return { entries: [] };
     }
-    const { data } = await api.post("/fs/read-directory", { path });
+    const { data } = await apiClient.post("/fs/read-directory", { path });
     return data;
   },
 
@@ -59,7 +59,7 @@ export const fs = {
       await new Promise(resolve => setTimeout(resolve, 200));
       return { content: MOCK_FILES[path] || "// File content not found in mock" };
     }
-    const { data } = await api.post("/fs/read-file", { path });
+    const { data } = await apiClient.post("/fs/read-file", { path });
     return data;
   },
 
@@ -70,7 +70,7 @@ export const fs = {
         MOCK_FILES[path] = content;
         return { status: "success" };
     }
-    const { data } = await api.post("/fs/write-file", { path, content });
+    const { data } = await apiClient.post("/fs/write-file", { path, content });
     return data;
   },
 };
@@ -81,15 +81,15 @@ export const rag = {
         await new Promise(resolve => setTimeout(resolve, 800));
         return { status: "indexed" };
     }
-    const { data } = await api.post("/rag/index", { file_path, content });
+    const { data } = await apiClient.post("/rag/index", { file_path, content });
     return data;
   },
   getContext: async (query: string, current_file: string | null = null): Promise<{ context: string }> => {
-    const { data } = await api.post("/rag/context", { query, current_file });
+    const { data } = await apiClient.post("/rag/context", { query, current_file });
     return data;
   },
   clearIndex: async (): Promise<{ status: string }> => {
-    const { data } = await api.post("/rag/clear");
+    const { data } = await apiClient.post("/rag/clear");
     return data;
   },
 };
@@ -105,7 +105,7 @@ export const llm = {
     const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
     const model = localStorage.getItem("ai_model") || "deepseek-coder";
     
-    const { data } = await api.post("/ollama/chat", { 
+    const { data } = await apiClient.post("/ollama/chat", { 
         model, 
         messages,
         options: { temperature: temp }
@@ -114,7 +114,7 @@ export const llm = {
   },
   complete: async (prefix: string, suffix: string): Promise<{ content: string }> => {
     const model = localStorage.getItem("ai_model") || "deepseek-coder";
-    const { data } = await api.post("/ollama/complete", { 
+    const { data } = await apiClient.post("/ollama/complete", { 
         model, 
         prefix, 
         suffix 
@@ -122,15 +122,15 @@ export const llm = {
     return data;
   },
   generateEmbedding: async (text: string): Promise<{ embedding: number[] }> => {
-    const { data } = await api.post("/ollama/generate_embedding", { text });
+    const { data } = await apiClient.post("/ollama/generate_embedding", { text });
     return data;
   },
   check: async (): Promise<{ available: boolean }> => {
-    const { data } = await api.get("/ollama/check");
+    const { data } = await apiClient.get("/ollama/check");
     return data;
   },
   models: async (): Promise<{ models: string[] }> => {
-    const { data } = await api.get("/ollama/models");
+    const { data } = await apiClient.get("/ollama/models");
     return data;
   },
   pullModel: async (model: string): Promise<{ status: string }> => {
@@ -138,12 +138,12 @@ export const llm = {
         await new Promise(resolve => setTimeout(resolve, 2000));
         return { status: "success" };
     }
-    const { data } = await api.post("/ollama/pull", { model });
+    const { data } = await apiClient.post("/ollama/pull", { model });
     return data;
   },
   deleteModel: async (model: string): Promise<{ status: string }> => {
     if (USE_MOCKS) return { status: "success" };
-    const { data } = await api.delete(`/ollama/models/${model}`);
+    const { data } = await apiClient.delete(`/ollama/models/${model}`);
     return data;
   }
 };
@@ -151,7 +151,7 @@ export const llm = {
 export const system = {
     getStats: async (): Promise<{ ram_total_gb: number; ram_available_gb: number; disk_total_gb: number; disk_free_gb: number }> => {
         if (USE_MOCKS) return { ram_total_gb: 16, ram_available_gb: 8, disk_total_gb: 500, disk_free_gb: 100 };
-        const { data } = await api.get("/api/system-resources");
+        const { data } = await apiClient.get("/api/system-resources");
         return data;
     }
 };
@@ -159,51 +159,51 @@ export const system = {
 export const git = {
     status: async (): Promise<{ changes: { code: string; path: string }[] }> => {
         if (USE_MOCKS) return { changes: [] };
-        const { data } = await api.get("/git/status");
+        const { data } = await apiClient.get("/git/status");
         return data;
     },
     stage: async (path: string): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/stage", { path });
+        await apiClient.post("/git/stage", { path });
     },
     unstage: async (path: string): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/unstage", { path });
+        await apiClient.post("/git/unstage", { path });
     },
     generateMessage: async (): Promise<{ message: string }> => {
         if (USE_MOCKS) return { message: "feat: mock commit message" };
-        const { data } = await api.post("/git/generate-message");
+        const { data } = await apiClient.post("/git/generate-message");
         return data;
     },
     commit: async (message: string): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/commit", { message });
+        await apiClient.post("/git/commit", { message });
     },
     getBranch: async (): Promise<{ branch: string }> => {
         if (USE_MOCKS) return { branch: "main" };
-        const { data } = await api.get("/git/branch");
+        const { data } = await apiClient.get("/git/branch");
         return data;
     },
     getBranches: async (): Promise<{ branches: string[] }> => {
         if (USE_MOCKS) return { branches: ["main", "dev", "feature/test"] };
-        const { data } = await api.get("/git/branches");
+        const { data } = await apiClient.get("/git/branches");
         return data;
     },
     checkout: async (name: string): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/branch/checkout", { name });
+        await apiClient.post("/git/branch/checkout", { name });
     },
     createBranch: async (name: string): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/branch/create", { name });
+        await apiClient.post("/git/branch/create", { name });
     },
     push: async (): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/push");
+        await apiClient.post("/git/push");
     },
     pull: async (): Promise<void> => {
         if (USE_MOCKS) return;
-        await api.post("/git/pull");
+        await apiClient.post("/git/pull");
     }
 };
 
@@ -213,7 +213,7 @@ export const optimizer = {
             await new Promise(resolve => setTimeout(resolve, 2000));
             return { status: "success", message: "Mock optimization complete" };
         }
-        const { data } = await api.post("/files/optimize", { file_path: path, instruction, model });
+        const { data } = await apiClient.post("/files/optimize", { file_path: path, instruction, model });
         return data;
     }
 };

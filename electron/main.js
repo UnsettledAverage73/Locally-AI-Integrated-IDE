@@ -1,6 +1,7 @@
 const { app, BrowserWindow } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const url = require('url');
 
 // If the app is NOT packaged (exe/dmg/appimage), then we are in Dev mode.
 const isDev = !app.isPackaged;
@@ -20,10 +21,14 @@ function createWindow() {
 
   // Load the React app
   if (isDev) {
-    win.loadURL('http://localhost:5173');
+    win.loadURL('http://localhost:5000');
     win.webContents.openDevTools(); // Open DevTools in development mode
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadURL(url.format({
+      pathname: path.join(__dirname, '../public/index.html'),
+      protocol: 'file:',
+      slashes: true
+    }));
   }
 }
 
