@@ -195,12 +195,14 @@ async def git_commit(request: GitCommitRequest):
 
 @app.get("/git/branch")
 async def git_get_branch():
-    return {"branch": git_service.get_current_branch()}
-
+    current_branch = git_service.get_current_branch()
+    branches = git_service.get_branches()
+    return {"current": current_branch, "branches": branches}
 
 @app.get("/git/branches")
 async def git_list_branches():
-    return {"branches": git_service.get_branches()}
+    branches = git_service.get_branches()
+    return {"branches": branches}
 
 
 class GitBranchRequest(BaseModel):
