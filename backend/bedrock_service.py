@@ -61,16 +61,18 @@ class BedrockService:
             
             print(f"Bedrock ClientError: {error_code} - {error_msg}")
 
-            if error_code in ["InvalidSignatureException", "AccessDeniedException", "UnrecognizedClientException"]:
+            if error_code in ["InvalidSignatureException", "UnrecognizedClientException"]:
                 return f"⚠️ AWS Authentication Error: Invalid credentials or permissions. Please check your Access Key, Secret Key, and Region. ({error_code})"
+            elif error_code == "AccessDeniedException":
+		        return f"AWS Access Denied Error"
             elif error_code == "ValidationException":
-                 return f"⚠️ AWS Configuration Error: {error_msg}. Check if the model ID '{self.model_id}' is available in your region."
+                return f"⚠️ AWS Configuration Error: {error_msg}. Check if the model ID '{self.model_id}' is available in your region."
             elif error_code == "ThrottlingException":
                 return "⚠️ AWS Quota Exceeded: Request throttled. Please try again later."
             elif error_code == "ServiceQuotaExceededException":
                 return "⚠️ AWS Quota Exceeded: You have reached your service quota for this model."
             elif error_code == "ModelNotReadyException":
-                 return "⚠️ AWS Model Error: The selected model is overloaded or not ready. Please retry."
+                return "⚠️ AWS Model Error: The selected model is overloaded or not ready. Please retry."
             else:
                 return f"⚠️ AWS Cloud Error: {error_msg} ({error_code})"
 

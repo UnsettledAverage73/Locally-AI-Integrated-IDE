@@ -21,7 +21,9 @@ function createWindow() {
 
   // Load the React app
   if (isDev) {
-    win.loadURL('http://localhost:5000');
+    setTimeout(() => {
+      win.loadURL('http://localhost:5000');
+    }, 5000); // Give the frontend server time to start
     win.webContents.openDevTools(); // Open DevTools in development mode
   } else {
     win.loadURL(url.format({
@@ -85,4 +87,4 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('will-quit', killPythonBackend);
+// app.on('will-quit', killPythonBackend);
