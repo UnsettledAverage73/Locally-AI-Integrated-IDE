@@ -10,4 +10,5 @@ boto3
 botocore
 psutil
 pyinstaller
+watchdog
 httpx

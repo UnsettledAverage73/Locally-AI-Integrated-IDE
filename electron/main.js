@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const url = require('url');
-
+const { dialog, ipcMain } = require('electron')
 // If the app is NOT packaged (exe/dmg/appimage), then we are in Dev mode.
 const isDev = !app.isPackaged;
 
@@ -87,4 +87,12 @@ app.on('window-all-closed', () => {
   }
 });
 
+// handle everts from preload.js for file/folder management
+ipcMain.handle('dialog:openFolder', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+  if (canceled) return null;
+  return filePaths[0] //return the selected path string
+})
 // app.on('will-quit', killPythonBackend);

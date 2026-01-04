@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
@@ -12,7 +12,6 @@ import fcntl
 import termios
 import psutil  # Added for system stats
 from telemetry import telemetry
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 import time
 
 # --- SERVICES ---
@@ -21,6 +20,8 @@ from services import OllamaService, RAGService
 from bedrock_service import BedrockService
 from git_service import GitService
 from optimizer_service import OptimizerService
+from routers import files
+from services.file_watcher import start_watcher
 
 app = FastAPI()
 
@@ -47,6 +48,31 @@ ollama_service = OllamaService()
 rag_service = RAGService(ollama_service=ollama_service)
 git_service = GitService(ollama_service=ollama_service)
 optimizer = OptimizerService()
+
+# --- ROUTER REGISTRATION ---
+app.include_router(files.router)
+
+# --- WEBSOCKET MANAGER ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except:
+                pass # Handle disconnected clients
+
+manager = ConnectionManager()
 
 # --- DATA MODELS ---
 
@@ -606,6 +632,29 @@ async def terminal_websocket(websocket: WebSocket):
 @app.get("/ops/stats")
 async def get_ops_stats():
     return telemetry.get_stats()
+
+# --- FILE WATCHER ENDPOINT ---
+
+@app.websocket("/ws/files")
+async def websocket_files_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text() # Keep connection alive
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+@app.on_event("startup")
+async def startup_event():
+    # Only start watcher if not in a test environment or if specifically requested
+    # For now, we assume we want it.
+    try:
+        loop = asyncio.get_running_loop()
+        # Watch the current directory
+        start_watcher(".", loop, manager.broadcast)
+        print("👀 File Watcher Started on root directory.")
+    except Exception as e:
+        print(f"⚠️ Failed to start file watcher: {e}")
 
 
 if __name__ == "__main__":

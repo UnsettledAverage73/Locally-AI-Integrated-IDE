@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { Save, BrainCircuit, Sparkles, Loader2 } from "lucide-react";
+import { Save, BrainCircuit, Sparkles, Loader2, CheckCircle, CloudUpload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { llm, optimizer } from "@/api/client";
+import { useAutoSave } from "../../hooks/useAutoSave";
 
 interface CodeEditorProps {
   content: string;
@@ -26,6 +27,9 @@ export default function CodeEditor({
   const monacoRef = useRef<any>(null);
   const completionProviderRef = useRef<any>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+
+  // Enable Auto-Save
+  const saveStatus = useAutoSave(content, filePath || "");
 
   const handleMagicFix = async () => {
     if (!filePath) return;
@@ -142,6 +146,7 @@ export default function CodeEditor({
       <div className="h-10 flex items-center justify-between px-4 bg-card/80 border-b border-border backdrop-blur-sm">
         <div className="flex items-center space-x-2">
             <span className="text-sm font-mono text-muted-foreground">{filePath}</span>
+            {saveStatus === 'unsaved' && <span className="w-2 h-2 rounded-full bg-yellow-500" title="Unsaved changes" />}
         </div>
         <div className="flex items-center space-x-2">
             <Button 
@@ -167,15 +172,19 @@ export default function CodeEditor({
                 <BrainCircuit className="w-3.5 h-3.5" />
                 {isIndexing ? "Indexing..." : "Add to Context"}
             </Button>
-            <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={onSave}
-                className="text-xs h-7 gap-1.5 hover:bg-accent/20 hover:text-accent"
-            >
-                <Save className="w-3.5 h-3.5" />
-                Save
-            </Button>
+            
+            <div className="flex items-center text-xs text-muted-foreground gap-2">
+                {saveStatus === 'saving' && (
+                    <span className="flex items-center text-yellow-500">
+                        <Loader2 className="w-3 h-3 animate-spin mr-1" /> Saving...
+                    </span>
+                )}
+                {saveStatus === 'saved' && (
+                    <span className="flex items-center text-green-500/50">
+                        <CheckCircle className="w-3 h-3 mr-1" /> Saved
+                    </span>
+                )}
+            </div>
         </div>
       </div>
 

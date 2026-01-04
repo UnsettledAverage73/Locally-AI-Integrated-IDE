@@ -65,7 +65,7 @@ function App() {
         }
 
         // Fetch File Tree
-        const { entries } = await fs.readDirectory("./");
+        const entries = await fs.getFileTree(".");
         setFileTree(entries);
 
         // Fetch Git Branch
@@ -87,6 +87,57 @@ function App() {
       }
     };
     boot();
+  }, []);
+
+  // File Watcher (WebSocket)
+  useEffect(() => {
+      const ws = new WebSocket("ws://127.0.0.1:8000/ws/files");
+
+      ws.onopen = () => {
+          console.log("Connected to File Watcher");
+      };
+
+      ws.onmessage = (event) => {
+          try {
+              const data = JSON.parse(event.data);
+              if (data.type === "file_change") {
+                  // Only notify if the file is currently open to avoid spam
+                  // We can't easily access current state in this effect closure without refs or dependency
+                  // But for now, we'll just show a toast.
+                  // Ideally, check against `openFiles` ref.
+                  toast({
+                      title: "File Changed on Disk",
+                      description: `External change detected in ${data.path}`,
+                      action: (
+                          <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={async () => {
+                                  // Reload the file content
+                                  try {
+                                      const { content } = await fs.readFile(data.path);
+                                      setOpenFiles((prev) => 
+                                          prev.map((f) => (f.path === data.path ? { ...f, content } : f))
+                                      );
+                                      toast({ title: "File Reloaded" });
+                                  } catch (e) {
+                                      toast({ title: "Reload Failed", variant: "destructive" });
+                                  }
+                              }}
+                          >
+                              Reload
+                          </Button>
+                      ),
+                  });
+              }
+          } catch (e) {
+              console.error("WS Error", e);
+          }
+      };
+
+      return () => {
+          ws.close();
+      };
   }, []);
 
   const handleFileClick = async (path: string) => {

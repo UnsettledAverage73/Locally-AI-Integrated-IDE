@@ -38,7 +38,7 @@ const MOCK_FILES: Record<string, string> = {
 const USE_MOCKS = false;
 
 export const apiClient = axios.create({
-  baseURL: "http://localhost:8000",
+  baseURL: "http://127.0.0.1:8000",
 });
 
 export const fs = {
@@ -51,6 +51,12 @@ export const fs = {
       return { entries: [] };
     }
     const { data } = await apiClient.post("/fs/read-directory", { path });
+    return data;
+  },
+
+  getFileTree: async (rootPath: string): Promise<FileEntry[]> => {
+    if (USE_MOCKS) return MOCK_FILE_TREE;
+    const { data } = await apiClient.get("/files/tree", { params: { root_path: rootPath } });
     return data;
   },
 
