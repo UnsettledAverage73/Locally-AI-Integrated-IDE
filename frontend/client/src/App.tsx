@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import EditorTabs from "@/components/Editor/EditorTabs";
@@ -10,6 +10,7 @@ import ChatPanel from "@/components/AI/ChatPanel";
 import Terminal from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SourceControl from "@/components/Git/SourceControl";
+import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import { Button } from "@/components/ui/button";
 import { fs, rag, llm, git } from "@/api/client";
 import { FileEntry, ChatMessage } from "@/types";
@@ -30,7 +31,7 @@ function App() {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [activeView, setActiveView] = useState<'explorer' | 'git'>('explorer');
+  const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system'>('explorer');
   const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
   
   // Loading States
@@ -296,12 +297,21 @@ function App() {
               >
                   <GitBranch className="w-5 h-5" />
               </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10", activeView === 'system' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                  onClick={() => setActiveView('system')}
+                  title="System Health"
+              >
+                  <HeartPulse className="w-5 h-5" />
+              </Button>
           </div>
 
           <ResizablePanelGroup direction="horizontal">
               {/* Left Sidebar: File Explorer OR Git */}
               <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
-                  {activeView === 'explorer' ? (
+                  {activeView === 'explorer' && (
                       <div className="h-full flex flex-col">
                           <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
                               Explorer
@@ -314,9 +324,9 @@ function App() {
                               />
                           </div>
                       </div>
-                  ) : (
-                      <SourceControl />
                   )}
+                  {activeView === 'git' && <SourceControl />}
+                  {activeView === 'system' && <SystemHealth />}
               </ResizablePanel>
               
               <ResizableHandle className="bg-border hover:bg-primary transition-colors" />

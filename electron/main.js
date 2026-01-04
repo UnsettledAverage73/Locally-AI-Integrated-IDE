@@ -35,14 +35,14 @@ function createWindow() {
 }
 
 function startPythonBackend() {
-  let scriptPath;
   if (isDev) {
-    // In development, assume the PyInstaller output is in resources/api relative to project root
-    scriptPath = path.join(__dirname, '..', 'resources', 'api', 'localdev-api');
-  } else {
-    // In production, the executable is bundled in the resources path of the app
-    scriptPath = path.join(process.resourcesPath, 'api', 'localdev-api');
+    console.log('In Dev mode: Skipping Python backend spawn (handled by npm script)');
+    return;
   }
+
+  let scriptPath;
+  // In production, the executable is bundled in the resources path of the app
+  scriptPath = path.join(process.resourcesPath, 'api', 'localdev-api');
 
   console.log(`Attempting to start Python backend from: ${scriptPath}`);
 

@@ -613,4 +613,4 @@ if __name__ == "__main__":
 
     # The 'app' must match your FastAPI variable name
     # '0.0.0.0' or '127.0.0.1' is fine. Port 8000 is standard.
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

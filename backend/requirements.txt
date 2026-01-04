@@ -9,4 +9,5 @@ websockets==12.0
 boto3
 botocore
 psutil
+pyinstaller
 httpx
