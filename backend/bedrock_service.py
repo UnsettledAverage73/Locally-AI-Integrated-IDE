@@ -64,7 +64,7 @@ class BedrockService:
             if error_code in ["InvalidSignatureException", "UnrecognizedClientException"]:
                 return f"⚠️ AWS Authentication Error: Invalid credentials or permissions. Please check your Access Key, Secret Key, and Region. ({error_code})"
             elif error_code == "AccessDeniedException":
-		        return f"AWS Access Denied Error"
+                return "AWS Access Denied Error"
             elif error_code == "ValidationException":
                 return f"⚠️ AWS Configuration Error: {error_msg}. Check if the model ID '{self.model_id}' is available in your region."
             elif error_code == "ThrottlingException":

@@ -79,6 +79,11 @@ export const fs = {
     const { data } = await apiClient.post("/fs/write-file", { path, content });
     return data;
   },
+
+  watchDirectory: async (path: string): Promise<{ status: string }> => {
+    const { data } = await apiClient.post("/fs/watch", { path });
+    return data;
+  },
 };
 
 export const rag = {

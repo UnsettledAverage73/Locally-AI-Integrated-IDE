@@ -21,7 +21,7 @@ from bedrock_service import BedrockService
 from git_service import GitService
 from optimizer_service import OptimizerService
 from routers import files
-from services.file_watcher import start_watcher
+from file_watcher import start_watcher
 
 app = FastAPI()
 
@@ -636,6 +636,7 @@ async def get_ops_stats():
 # --- FILE WATCHER ENDPOINT ---
 
 @app.websocket("/ws/files")
+@app.websocket("/fs/file") # Alias as requested by user ("implement /fs/file")
 async def websocket_files_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
@@ -644,17 +645,44 @@ async def websocket_files_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+# Global observer variable to handle shutdown
+file_observer = None
+
+@app.post("/fs/watch")
+async def watch_directory(request: FileOperationRequest):
+    global file_observer
+    try:
+        if file_observer:
+            file_observer.stop()
+            # Run join in a thread to avoid blocking the event loop
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, file_observer.join)
+        
+        loop = asyncio.get_running_loop()
+        file_observer = start_watcher(request.path, loop, manager.broadcast)
+        return {"status": "success", "watching": request.path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.on_event("startup")
 async def startup_event():
+    global file_observer
     # Only start watcher if not in a test environment or if specifically requested
-    # For now, we assume we want it.
     try:
         loop = asyncio.get_running_loop()
         # Watch the current directory
-        start_watcher(".", loop, manager.broadcast)
+        file_observer = start_watcher(".", loop, manager.broadcast)
         print("👀 File Watcher Started on root directory.")
     except Exception as e:
         print(f"⚠️ Failed to start file watcher: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global file_observer
+    if file_observer:
+        print("🛑 Stopping File Watcher...")
+        file_observer.stop()
+        file_observer.join()
 
 
 if __name__ == "__main__":

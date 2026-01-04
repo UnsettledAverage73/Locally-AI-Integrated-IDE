@@ -95,4 +95,12 @@ ipcMain.handle('dialog:openFolder', async () => {
   if (canceled) return null;
   return filePaths[0] //return the selected path string
 })
+
+ipcMain.handle('dialog:openFiles', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile', 'multiSelections']
+  });
+  if (canceled) return null;
+  return filePaths;
+})
 // app.on('will-quit', killPythonBackend);

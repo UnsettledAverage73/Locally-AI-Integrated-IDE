@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch, HeartPulse } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import EditorTabs from "@/components/Editor/EditorTabs";
@@ -27,6 +27,7 @@ function App() {
   const { toast } = useToast();
   
   // State
+  const [rootPath, setRootPath] = useState<string>(localStorage.getItem("rootPath") || ".");
   const [fileTree, setFileTree] = useState<FileEntry[]>([]);
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -65,8 +66,11 @@ function App() {
         }
 
         // Fetch File Tree
-        const entries = await fs.getFileTree(".");
+        const entries = await fs.getFileTree(rootPath);
         setFileTree(entries);
+
+        // Update Watcher
+        await fs.watchDirectory(rootPath);
 
         // Fetch Git Branch
         try {
@@ -87,7 +91,44 @@ function App() {
       }
     };
     boot();
-  }, []);
+  }, [rootPath]);
+
+  const handleOpenFolder = async () => {
+    try {
+        const selectedPath = await (window as any).fileSystem?.selectFolder();
+        if (selectedPath) {
+            setRootPath(selectedPath);
+            localStorage.setItem("rootPath", selectedPath);
+            toast({
+                title: "Folder Opened",
+                description: `Switched to ${selectedPath}`,
+            });
+        }
+    } catch (e) {
+        toast({
+            title: "Error",
+            description: "Could not open folder dialog.",
+            variant: "destructive",
+        });
+    }
+  };
+
+  const handleOpenFiles = async () => {
+    try {
+        const filePaths = await (window as any).fileSystem?.selectFiles();
+        if (filePaths && filePaths.length > 0) {
+            for (const path of filePaths) {
+                await handleFileClick(path);
+            }
+        }
+    } catch (e) {
+        toast({
+            title: "Error",
+            description: "Could not open file dialog.",
+            variant: "destructive",
+        });
+    }
+  };
 
   // File Watcher (WebSocket)
   useEffect(() => {
@@ -97,38 +138,46 @@ function App() {
           console.log("Connected to File Watcher");
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
           try {
               const data = JSON.parse(event.data);
               if (data.type === "file_change") {
-                  // Only notify if the file is currently open to avoid spam
-                  // We can't easily access current state in this effect closure without refs or dependency
-                  // But for now, we'll just show a toast.
-                  // Ideally, check against `openFiles` ref.
-                  toast({
-                      title: "File Changed on Disk",
-                      description: `External change detected in ${data.path}`,
-                      action: (
-                          <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={async () => {
-                                  // Reload the file content
-                                  try {
-                                      const { content } = await fs.readFile(data.path);
-                                      setOpenFiles((prev) => 
-                                          prev.map((f) => (f.path === data.path ? { ...f, content } : f))
-                                      );
-                                      toast({ title: "File Reloaded" });
-                                  } catch (e) {
-                                      toast({ title: "Reload Failed", variant: "destructive" });
-                                  }
-                              }}
-                          >
-                              Reload
-                          </Button>
-                      ),
-                  });
+                  // Refresh tree on structural changes
+                  if (['created', 'deleted', 'moved'].includes(data.event)) {
+                      const entries = await fs.getFileTree(rootPath);
+                      setFileTree(entries);
+                  }
+
+                  // Toast for external modifications
+                  if (data.event === 'modified' || data.event === 'created') {
+                      toast({
+                          title: `File ${data.event === 'created' ? 'Created' : 'Changed'}`,
+                          description: `External change: ${data.name}`,
+                          action: (
+                              <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={async () => {
+                                      // Reload the file content if it matches active path
+                                      try {
+                                          if (data.path) {
+                                              const { content } = await fs.readFile(data.path);
+                                              setOpenFiles((prev) => 
+                                                  prev.map((f) => (f.path === data.path ? { ...f, content } : f))
+                                              );
+                                              // Also update active file content if it is the one open
+                                              toast({ title: "File Reloaded" });
+                                          }
+                                      } catch (e) {
+                                          toast({ title: "Reload Failed", variant: "destructive" });
+                                      }
+                                  }}
+                              >
+                                  Reload
+                              </Button>
+                          ),
+                      });
+                  }
               }
           } catch (e) {
               console.error("WS Error", e);
@@ -364,15 +413,33 @@ function App() {
               <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
                   {activeView === 'explorer' && (
                       <div className="h-full flex flex-col">
-                          <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
-                              Explorer
+                          <div className="p-2 flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
+                              <span>Explorer</span>
+                              <div className="flex gap-1">
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-muted" onClick={handleOpenFiles} title="Open Files">
+                                      <FilePlus className="w-3 h-3" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-muted" onClick={handleOpenFolder} title="Open Folder">
+                                      <FolderOpen className="w-3 h-3" />
+                                  </Button>
+                              </div>
                           </div>
                           <div className="flex-1 overflow-y-auto p-2">
-                              <FileTree 
-                                  entries={fileTree} 
-                                  onFileClick={handleFileClick} 
-                                  activeFile={activeFile} 
-                              />
+                              {fileTree.length > 0 ? (
+                                <FileTree 
+                                    entries={fileTree} 
+                                    onFileClick={handleFileClick} 
+                                    activeFile={activeFile} 
+                                />
+                              ) : (
+                                <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+                                    <Folder className="w-8 h-8 mb-2 opacity-20" />
+                                    <p className="text-xs text-muted-foreground mb-4">No folder opened</p>
+                                    <Button variant="outline" size="sm" onClick={handleOpenFolder} className="text-xs">
+                                        Open Folder
+                                    </Button>
+                                </div>
+                              )}
                           </div>
                       </div>
                   )}
