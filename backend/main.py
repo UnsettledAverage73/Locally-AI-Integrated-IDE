@@ -5,14 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
 import difflib
-import pty
-import select
-import struct
-import fcntl
-import termios
+import sys
 import psutil  # Added for system stats
 from telemetry import telemetry
 import time
+
+# Platform specific imports
+if sys.platform != "win32":
+    import pty
+    import termios
+    import fcntl
+    import struct
+    import select
 
 # --- SERVICES ---
 # Ensure you have created bedrock_service.py and services.py!
@@ -543,6 +547,11 @@ def optimize_file_endpoint(req: OptimizeRequest):
 async def terminal_websocket(websocket: WebSocket):
     await websocket.accept()
 
+    if sys.platform == "win32":
+        await websocket.send_text("Terminal not supported on Windows.\r\n")
+        await websocket.close()
+        return
+
     # Spawn a pseudo-terminal
     master_fd, slave_fd = pty.openpty()
 
@@ -591,7 +600,7 @@ async def terminal_websocket(websocket: WebSocket):
                     if data.startswith("RESIZE:"):
                         try:
                             _, params = data.split(":", 1)
-                            cols, rows = map(int, params.split(","))
+                            cols, rows = map(int, params.split(','))
                             # Set terminal size
                             winsize = struct.pack("HHHH", rows, cols, 0, 0)
                             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)

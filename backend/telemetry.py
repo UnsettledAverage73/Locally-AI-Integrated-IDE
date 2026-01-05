@@ -1,10 +1,18 @@
 import sqlite3
 import time
 import json
+import os
 from datetime import datetime
 
 class TelemetryService:
-    def __init__(self, db_path="./.localdev-db/llm_ops.db"):
+    def __init__(self, db_path=None):
+        if db_path is None:
+            # Use user's home directory to avoid permission issues in /tmp or program files
+            home_dir = os.path.expanduser("~")
+            base_dir = os.path.join(home_dir, ".localdev")
+            os.makedirs(base_dir, exist_ok=True)
+            db_path = os.path.join(base_dir, "llm_ops.db")
+
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.create_tables()
 

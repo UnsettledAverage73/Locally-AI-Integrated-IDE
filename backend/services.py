@@ -9,7 +9,10 @@ load_dotenv()
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
-LANCEDB_PATH = os.getenv("LANCEDB_PATH", "./.localdev-db")
+
+# Use a safe default path in the user's home directory
+DEFAULT_LANCEDB_PATH = os.path.join(os.path.expanduser("~"), ".localdev", "lancedb")
+LANCEDB_PATH = os.getenv("LANCEDB_PATH", DEFAULT_LANCEDB_PATH)
 
 class OllamaService:
     def __init__(self, host: str = OLLAMA_HOST):
@@ -166,6 +169,8 @@ class OllamaService:
 class RAGService:
     def __init__(self, db_path: str = LANCEDB_PATH, ollama_service: OllamaService = None):
         self.db_path = db_path
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(self.db_path) if '.' in os.path.basename(self.db_path) else self.db_path, exist_ok=True)
         self.ollama_service = ollama_service or OllamaService()
         self.db = None
         self.table = None

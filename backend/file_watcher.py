@@ -8,13 +8,13 @@ class IDEEventHandler(RegexMatchingEventHandler):
         # Ignore common heavy directories and files
         # Regexes are matched against the full path
         ignore_regex = [
-            r".*[/\]node_modules[/\]",
-            r".*[/\]\.git[/\]",
-            r".*[/\]\.gemini[/\]",
-            r".*[/\]__pycache__[/\]",
-            r".*[/\]venv[/\]",
-            r".*[/\]dist[/\]",
-            r".*[/\]build[/\]",
+            r".*[/\\]node_modules[/\\]",
+            r".*[/\\]\.git[/\\]",
+            r".*[/\\]\.gemini[/\\]",
+            r".*[/\\]__pycache__[/\\]",
+            r".*[/\\]venv[/\\]",
+            r".*[/\\]dist[/\\]",
+            r".*[/\\]build[/\\]",
             r".*\.DS_Store",
         ]
         super().__init__(ignore_regexes=ignore_regex)

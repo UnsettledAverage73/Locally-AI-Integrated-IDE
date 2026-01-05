@@ -8,4 +8,6 @@ release
 .localdev-db
 *.log
 .DS_Store
-.envresources/api/localdev-api
+.env
+resources/api/localdev-api
+backend/build/
