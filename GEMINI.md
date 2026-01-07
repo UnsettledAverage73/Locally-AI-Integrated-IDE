@@ -8,8 +8,12 @@
 The application follows a multi-process architecture:
 1.  **Electron (Root)**: The main desktop application container (`electron/main.js`). It manages the window and spawns the Python backend.
 2.  **Frontend (React)**: The UI layer (`frontend/`), built with Vite, React, TypeScript, and Tailwind CSS. It uses Monaco Editor for code editing.
-3.  **Backend (Python)**: A FastAPI service (`backend/`) that handles AI inference via Ollama and RAG (Retrieval-Augmented Generation) with LanceDB.
-4.  **Motia App**: A separate component (`motia-app/`) included in the repository, representing a project using the Motia framework (likely an example or target environment).
+-   **Backend (Python)**: A FastAPI service (`backend/`) that handles AI inference via Ollama, RAG with LanceDB, and MCP (Model Context Protocol) for tool execution.
+-   **Motia App**: A separate component (`motia-app/`) included in the repository, representing a project using the Motia framework (likely an example or target environment).
+
+### New Features (Genesis Protocol)
+-   **Batch Scaffolding**: The backend now supports generating entire project structures in a single step using the `scaffold_project` MCP tool.
+-   **Architect Persona**: The AI automatically adopts a "Senior Architect" persona when asked to create projects, ensuring efficient file generation.
 
 ## 🛠️ Building and Running
 

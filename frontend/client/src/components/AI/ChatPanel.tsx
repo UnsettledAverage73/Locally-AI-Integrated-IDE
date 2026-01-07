@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Send, Bot, User, Sparkles, Eraser, Play } from "lucide-react";
+import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChatMessage } from "../../types";
+import { ChatMessage, ToolCall } from "../../types";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
@@ -23,12 +23,16 @@ interface ChatPanelProps {
   onClearChat: () => void;
   hasCheckedOllama: boolean;
   onApplyCode: (code: string) => void;
+  onToolAction: (toolCall: ToolCall, approved: boolean) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  // State to track if an action has been taken for a specific tool call index (local only)
+  // This prevents re-clicking allow/deny on old messages
+  const [actionTaken, setActionTaken] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -47,6 +51,7 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
     try {
       await rag.clearIndex();
       onClearChat();
+      setActionTaken({});
       toast({
         title: "Index Cleared",
         description: "RAG index and chat history cleared.",
@@ -61,8 +66,15 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
     }
   };
 
+  const handleAction = (index: number, toolCall: ToolCall, approved: boolean) => {
+      // Mark this message index as handled locally
+      setActionTaken(prev => ({ ...prev, [index]: true }));
+      onToolAction(toolCall, approved);
+  };
+
   // Custom component to render code blocks with syntax highlighting and "Apply" button
   const CodeBlock = useMemo(() => ({ inline, className, children, ...props }: any) => {
+// ... existing CodeBlock code ...
     const match = /language-(\w+)/.exec(className || '');
     const codeContent = String(children).replace(/\n$/, '');
 
@@ -150,8 +162,8 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cn(
-                    "flex w-full",
-                    msg.role === "user" ? "justify-end" : "justify-start"
+                    "flex w-full flex-col gap-2",
+                    msg.role === "user" ? "items-end" : "items-start"
                 )}
             >
                 <div className={cn(
@@ -175,6 +187,50 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                         </ReactMarkdown>
                     </div>
                 </div>
+
+                {/* Tool Approval Card */}
+                {msg.tool_calls && msg.tool_calls.length > 0 && !actionTaken[i] && (
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-[85%] w-full bg-card border border-yellow-500/50 rounded-lg p-4 shadow-md ml-8"
+                    >
+                        <div className="flex items-center gap-2 mb-3 text-yellow-500">
+                            <AlertTriangle className="w-5 h-5" />
+                            <span className="font-bold text-sm">Action Required</span>
+                        </div>
+                        
+                        {msg.tool_calls.map((tool, tIdx) => (
+                            <div key={tIdx} className="mb-4 text-sm">
+                                <p className="text-muted-foreground mb-1">AI wants to execute:</p>
+                                <div className="bg-muted/50 p-2 rounded border border-border font-mono text-xs overflow-x-auto">
+                                    <span className="text-accent font-bold">{tool.function.name}</span>
+                                    <pre className="mt-1 text-foreground/80">{JSON.stringify(tool.function.arguments, null, 2)}</pre>
+                                </div>
+                                <div className="flex gap-2 mt-3">
+                                    <Button 
+                                        size="sm" 
+                                        onClick={() => handleAction(i, tool, true)}
+                                        className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                                    >
+                                        <Check className="w-4 h-4" /> Allow
+                                    </Button>
+                                    <Button 
+                                        size="sm" 
+                                        variant="outline"
+                                        onClick={() => handleAction(i, tool, false)}
+                                        className="border-red-500/50 text-red-500 hover:bg-red-500/10 gap-1"
+                                    >
+                                        <X className="w-4 h-4" /> Deny
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </motion.div>
+                )}
+                
+                {/* Tool Result (if already executed and stored in history? - Not fully implemented in message history yet, but assuming it comes as a separate 'tool' role message later) */}
+                
             </motion.div>
         ))}
 

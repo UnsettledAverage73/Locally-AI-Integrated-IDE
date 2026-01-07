@@ -24,6 +24,7 @@ from services import OllamaService, RAGService
 from bedrock_service import BedrockService
 from git_service import GitService
 from optimizer_service import OptimizerService
+from services.llm_service import chat_with_tools, execute_tool_and_continue
 from routers import files
 from file_watcher import start_watcher
 
@@ -56,6 +57,7 @@ optimizer = OptimizerService()
 # --- ROUTER REGISTRATION ---
 app.include_router(files.router)
 
+
 # --- WEBSOCKET MANAGER ---
 class ConnectionManager:
     def __init__(self):
@@ -74,7 +76,8 @@ class ConnectionManager:
             try:
                 await connection.send_json(message)
             except:
-                pass # Handle disconnected clients
+                pass  # Handle disconnected clients
+
 
 manager = ConnectionManager()
 
@@ -147,6 +150,14 @@ class OptimizeRequest(BaseModel):
     file_path: str
     instruction: str
     model: str | None = "deepseek-coder"
+
+
+class ExecuteToolRequest(BaseModel):
+    model: str
+    messages: List[Dict[str, Any]]
+    tool_call: Dict[str, Any]
+    approved: bool
+    options: Dict[str, Any] | None = None
 
 
 # --- ENDPOINTS ---
@@ -228,6 +239,7 @@ async def git_get_branch():
     current_branch = git_service.get_current_branch()
     branches = git_service.get_branches()
     return {"current": current_branch, "branches": branches}
+
 
 @app.get("/git/branches")
 async def git_list_branches():
@@ -357,7 +369,6 @@ async def ollama_chat(request: ChatRequest):
     Smart Chat Handler: Decides between Local (Ollama) or Cloud (Bedrock).
     """
     start_time = time.time()
-    response_content = ""
     try:
         # 1. Check if we should use Cloud Mode
         if app_state["mode"] == "cloud" and app_state["aws_creds"]:
@@ -372,16 +383,25 @@ async def ollama_chat(request: ChatRequest):
                     region=app_state["aws_creds"]["region"],
                 )
                 print("☁️ Using Cloud Brain (Bedrock)...")
-                response_content = await bedrock.chat_completion(request.messages)
+                content = await bedrock.chat_completion(request.messages)
+                
+                # Cloud mode wrapper
+                response = {
+                    "content": content,
+                    "tool_calls": [],
+                    "messages": request.messages + [{"role": "assistant", "content": content}],
+                    "status": "complete"
+                }
 
             except Exception as e:
-                response_content = f"⚠️ Cloud Error: {str(e)}"
-                raise HTTPException(status_code=500, detail=response_content)
+                response = {"error": f"Cloud Error: {str(e)}"}
+                raise HTTPException(status_code=500, detail=response["error"])
 
         # 2. Default: Local Mode
         else:
-            print("💻 Using Local Brain (Ollama)...")
-            response_content = await ollama_service.chat_completion(
+            print("💻 Using Local Brain (Ollama with Tools)...")
+            # Use the new chat_with_tools for enhanced functionality
+            response = await chat_with_tools(
                 request.model, request.messages, request.options
             )
 
@@ -390,9 +410,9 @@ async def ollama_chat(request: ChatRequest):
             model=request.model,
             start_time=start_time,
             input_text=str(request.messages),
-            output_text=response_content,
+            output_text=str(response.get("content", "")),
         )
-        return {"content": response_content}
+        return response
 
     except Exception as e:
         telemetry.log_trace(
@@ -404,6 +424,23 @@ async def ollama_chat(request: ChatRequest):
             success=False,
         )
         raise e
+
+@app.post("/ollama/tool/execute")
+async def ollama_tool_execute(request: ExecuteToolRequest):
+    """
+    Executes a tool after user approval and continues the chat.
+    """
+    try:
+        response = await execute_tool_and_continue(
+            request.model, 
+            request.messages, 
+            request.tool_call, 
+            request.approved,
+            request.options
+        )
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/ollama/complete")
@@ -600,7 +637,7 @@ async def terminal_websocket(websocket: WebSocket):
                     if data.startswith("RESIZE:"):
                         try:
                             _, params = data.split(":", 1)
-                            cols, rows = map(int, params.split(','))
+                            cols, rows = map(int, params.split(","))
                             # Set terminal size
                             winsize = struct.pack("HHHH", rows, cols, 0, 0)
                             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
@@ -642,20 +679,24 @@ async def terminal_websocket(websocket: WebSocket):
 async def get_ops_stats():
     return telemetry.get_stats()
 
+
 # --- FILE WATCHER ENDPOINT ---
 
+
 @app.websocket("/ws/files")
-@app.websocket("/fs/file") # Alias as requested by user ("implement /fs/file")
+@app.websocket("/fs/file")  # Alias as requested by user ("implement /fs/file")
 async def websocket_files_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text() # Keep connection alive
+            await websocket.receive_text()  # Keep connection alive
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+
 # Global observer variable to handle shutdown
 file_observer = None
+
 
 @app.post("/fs/watch")
 async def watch_directory(request: FileOperationRequest):
@@ -666,12 +707,13 @@ async def watch_directory(request: FileOperationRequest):
             # Run join in a thread to avoid blocking the event loop
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, file_observer.join)
-        
+
         loop = asyncio.get_running_loop()
         file_observer = start_watcher(request.path, loop, manager.broadcast)
         return {"status": "success", "watching": request.path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -684,6 +726,7 @@ async def startup_event():
         print("👀 File Watcher Started on root directory.")
     except Exception as e:
         print(f"⚠️ Failed to start file watcher: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -700,3 +743,4 @@ if __name__ == "__main__":
     # The 'app' must match your FastAPI variable name
     # '0.0.0.0' or '127.0.0.1' is fine. Port 8000 is standard.
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

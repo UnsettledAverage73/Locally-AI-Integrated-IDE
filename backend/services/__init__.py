@@ -17,7 +17,7 @@ LANCEDB_PATH = os.getenv("LANCEDB_PATH", DEFAULT_LANCEDB_PATH)
 class OllamaService:
     def __init__(self, host: str = OLLAMA_HOST):
         # Increased timeout to 30 minutes for large model downloads
-        self.client = ollama.AsyncClient(base_url=host, timeout=1800.00)
+        self.client = ollama.AsyncClient(host=host, timeout=1800.00)
 
     async def check_connection(self) -> bool:
         try:

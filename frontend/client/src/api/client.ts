@@ -123,6 +123,19 @@ export const llm = {
     });
     return data;
   },
+  executeTool: async (messages: ChatMessage[], tool_call: any, approved: boolean): Promise<ChatResponse> => {
+    const model = localStorage.getItem("ai_model") || "deepseek-coder";
+    const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
+    
+    const { data } = await apiClient.post("/ollama/tool/execute", {
+        model,
+        messages,
+        tool_call,
+        approved,
+        options: { temperature: temp }
+    });
+    return data;
+  },
   complete: async (prefix: string, suffix: string): Promise<{ content: string }> => {
     const model = localStorage.getItem("ai_model") || "deepseek-coder";
     const { data } = await apiClient.post("/ollama/complete", { 

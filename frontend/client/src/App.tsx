@@ -13,7 +13,7 @@ import SourceControl from "@/components/Git/SourceControl";
 import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import { Button } from "@/components/ui/button";
 import { fs, rag, llm, git } from "@/api/client";
-import { FileEntry, ChatMessage } from "@/types";
+import { FileEntry, ChatMessage, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DownloadProvider } from "@/context/DownloadContext";
 import { DownloadWidget } from "@/components/DownloadWidget";
@@ -329,10 +329,14 @@ function App() {
 
       const response = await llm.chat(messagesToSend);
       
-      setChatMessages(prev => [
-        ...prev,
-        { role: "assistant", content: response.content }
-      ]);
+      if (response.messages) {
+          setChatMessages(response.messages);
+      } else {
+          setChatMessages(prev => [
+            ...prev,
+            { role: "assistant", content: response.content }
+          ]);
+      }
     } catch (error) {
       toast({
         title: "AI Error",
@@ -342,6 +346,29 @@ function App() {
     } finally {
       setIsChatLoading(false);
     }  
+  };
+
+  const handleToolAction = async (toolCall: ToolCall, approved: boolean) => {
+      setIsChatLoading(true);
+      try {
+          const response = await llm.executeTool(
+              chatMessages, 
+              toolCall, 
+              approved
+          );
+          
+          if (response.messages) {
+              setChatMessages(response.messages);
+          }
+      } catch (error) {
+          toast({
+              title: "Tool Error",
+              description: "Failed to execute tool action.",
+              variant: "destructive",
+          });
+      } finally {
+          setIsChatLoading(false);
+      }
   };
 
   if (isBooting) {
@@ -508,6 +535,7 @@ function App() {
                       onClearChat={() => setChatMessages([])}
                       hasCheckedOllama={hasCheckedOllama}
                       onApplyCode={handleApplyCode}
+                      onToolAction={handleToolAction}
                   />
               </ResizablePanel>
           </ResizablePanelGroup>
