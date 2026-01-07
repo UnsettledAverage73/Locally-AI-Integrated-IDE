@@ -30,9 +30,6 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
-  // State to track if an action has been taken for a specific tool call index (local only)
-  // This prevents re-clicking allow/deny on old messages
-  const [actionTaken, setActionTaken] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -51,7 +48,6 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
     try {
       await rag.clearIndex();
       onClearChat();
-      setActionTaken({});
       toast({
         title: "Index Cleared",
         description: "RAG index and chat history cleared.",
@@ -64,12 +60,6 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
         variant: "destructive",
       });
     }
-  };
-
-  const handleAction = (index: number, toolCall: ToolCall, approved: boolean) => {
-      // Mark this message index as handled locally
-      setActionTaken(prev => ({ ...prev, [index]: true }));
-      onToolAction(toolCall, approved);
   };
 
   // Custom component to render code blocks with syntax highlighting and "Apply" button
@@ -156,44 +146,15 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
             </div>
         )}
 
-        {messages.map((msg, i) => (
-            <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={cn(
-                    "flex w-full flex-col gap-2",
-                    msg.role === "user" ? "items-end" : "items-start"
-                )}
-            >
-                <div className={cn(
-                    "flex max-w-[85%] rounded-lg p-3 text-sm shadow-sm",
-                    msg.role === "user" 
-                        ? "bg-primary/10 text-primary-foreground border border-primary/20 rounded-tr-none" 
-                        : "bg-card text-card-foreground border border-border rounded-tl-none"
-                )}>
-                    <div className="mr-3 mt-0.5 shrink-0 opacity-70">
-                        {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                    </div>
-                    <div className="leading-relaxed prose prose-invert max-w-none break-words overflow-hidden">
-                        <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]} 
-                            components={{
-                                code: CodeBlock, 
-                                a: ({ node, ...props }) => <a {...props} className="text-accent underline" target="_blank" rel="noopener noreferrer" />
-                            }}
-                        >
-                            {msg.content}
-                        </ReactMarkdown>
-                    </div>
-                </div>
-
-                {/* Tool Approval Card */}
-                {msg.tool_calls && msg.tool_calls.length > 0 && !actionTaken[i] && (
+        {messages.map((msg, i) => {
+            // 1. Permission Request Card (Rendered as a separate message block)
+            if (msg.type === 'permission_request' && msg.tool_calls && msg.tool_calls.length > 0) {
+                return (
                     <motion.div 
+                        key={i}
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="max-w-[85%] w-full bg-card border border-yellow-500/50 rounded-lg p-4 shadow-md ml-8"
+                        className="w-full bg-card border border-yellow-500/50 rounded-lg p-4 shadow-md my-2"
                     >
                         <div className="flex items-center gap-2 mb-3 text-yellow-500">
                             <AlertTriangle className="w-5 h-5" />
@@ -210,7 +171,7 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                                 <div className="flex gap-2 mt-3">
                                     <Button 
                                         size="sm" 
-                                        onClick={() => handleAction(i, tool, true)}
+                                        onClick={() => onToolAction(tool, true)}
                                         className="bg-green-600 hover:bg-green-700 text-white gap-1"
                                     >
                                         <Check className="w-4 h-4" /> Allow
@@ -218,7 +179,7 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                                     <Button 
                                         size="sm" 
                                         variant="outline"
-                                        onClick={() => handleAction(i, tool, false)}
+                                        onClick={() => onToolAction(tool, false)}
                                         className="border-red-500/50 text-red-500 hover:bg-red-500/10 gap-1"
                                     >
                                         <X className="w-4 h-4" /> Deny
@@ -227,12 +188,44 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                             </div>
                         ))}
                     </motion.div>
-                )}
-                
-                {/* Tool Result (if already executed and stored in history? - Not fully implemented in message history yet, but assuming it comes as a separate 'tool' role message later) */}
-                
-            </motion.div>
-        ))}
+                );
+            }
+
+            // 2. Standard Chat Bubble
+            return (
+                <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={cn(
+                        "flex w-full flex-col gap-2",
+                        msg.role === "user" ? "items-end" : "items-start"
+                    )}
+                >
+                    <div className={cn(
+                        "flex max-w-[85%] rounded-lg p-3 text-sm shadow-sm",
+                        msg.role === "user" 
+                            ? "bg-primary/10 text-primary-foreground border border-primary/20 rounded-tr-none" 
+                            : "bg-card text-card-foreground border border-border rounded-tl-none"
+                    )}>
+                        <div className="mr-3 mt-0.5 shrink-0 opacity-70">
+                            {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                        </div>
+                        <div className="leading-relaxed prose prose-invert max-w-none break-words overflow-hidden">
+                            <ReactMarkdown 
+                                remarkPlugins={[remarkGfm]} 
+                                components={{
+                                    code: CodeBlock, 
+                                    a: ({ node, ...props }) => <a {...props} className="text-accent underline" target="_blank" rel="noopener noreferrer" />
+                                }}
+                            >
+                                {msg.content}
+                            </ReactMarkdown>
+                        </div>
+                    </div>
+                </motion.div>
+            );
+        })}
 
         {isLoading && (
             <motion.div 

@@ -61,6 +61,79 @@ def log_debug(msg):
     with open("debug_llm.log", "a") as f:
         f.write(f"{msg}\n")
 
+def _process_llm_response(response, messages):
+    """
+    Helper to parse LLM response for tool calls (native or JSON)
+    and determine the next state.
+    """
+    msg_content = response['message']['content']
+    log_debug(f"LLM Response Content: {msg_content}")
+    
+    tool_calls = response['message'].get('tool_calls')
+    if tool_calls is None:
+        tool_calls = []
+
+    # If no native tool calls, check for manual JSON tool call
+    if not tool_calls:
+        try:
+            # Clean content (sometimes models add markdown code blocks)
+            clean_content = msg_content.strip()
+            if clean_content.startswith("```json"):
+                clean_content = clean_content[7:-3].strip()
+            elif clean_content.startswith("```"):
+                clean_content = clean_content[3:-3].strip()
+            
+            # Heuristic: Only try parsing if it looks like JSON object/list
+            if clean_content.startswith("{") or clean_content.startswith("["):
+                log_debug(f"Attempting JSON parse on: {clean_content}")
+                data = json.loads(clean_content)
+                
+                # Normalize single tool call vs list of calls
+                if isinstance(data, dict):
+                    if 'tool' in data and 'arguments' in data:
+                        log_debug("Found single tool call in JSON")
+                        tool_calls.append({
+                            'function': {
+                                'name': data['tool'],
+                                'arguments': data['arguments']
+                            }
+                        })
+                elif isinstance(data, list):
+                    log_debug("Found list of tool calls in JSON")
+                    for item in data:
+                        if 'tool' in item and 'arguments' in item:
+                            tool_calls.append({
+                                'function': {
+                                    'name': item['tool'],
+                                    'arguments': item['arguments']
+                                }
+                            })
+        except json.JSONDecodeError:
+            log_debug("JSON Decode Error")
+            pass
+        except Exception as e:
+            log_debug(f"Error parsing manual JSON tool call: {e}")
+
+    messages.append(response['message'])
+    
+    # Check for recursion/loop (STOP condition)
+    if tool_calls:
+        log_debug(f"🛑 Tool calls detected: {len(tool_calls)}. Requesting approval.")
+        return {
+            "content": msg_content,
+            "tool_calls": tool_calls,
+            "messages": messages, # Return updated history
+            "status": "approval_required"
+        }
+
+    # If no tools, just return the content
+    return {
+        "content": msg_content,
+        "tool_calls": [],
+        "messages": messages,
+        "status": "complete"
+    }
+
 async def chat_with_tools(model: str, messages: list, options: dict = None):
     log_debug(f"Starting chat with {model}")
     """
@@ -83,7 +156,7 @@ async def chat_with_tools(model: str, messages: list, options: dict = None):
         messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
     elif not has_system:
         # General helper persona if not specifically creating
-        messages.insert(0, {"role": "system", "content": "You are a helpful AI assistant with direct access to the computer's filesystem via tools. If the user asks to see files, read files, or write a file, use the appropriate tool immediately. Do not explain that you are using a tool, just do it."})
+        messages.insert(0, {"role": "system", "content": "You are a helpful AI assistant with direct access to the computer's filesystem via tools. If the user asks to see files, read files, or write a file, use the appropriate tool immediately. Do not explain that you are using a tool, just do it. Only use `run_shell_command` if the user explicitly asks to run a terminal command or script. Do not interpret conversational questions (like 'is it ready?') as shell commands. You are restricted to the current project directory. Do not attempt to access or modify files outside this folder (e.g. do not access /home/user/, /etc/, or system paths)."})
     
     # 2. Get Tools (Now includes scaffold_project)
     tools = await mcp_manager.list_tools()
@@ -134,77 +207,13 @@ async def chat_with_tools(model: str, messages: list, options: dict = None):
         else:
             return {"error": f"Ollama Error: {str(e)}"}
     
-    # 4. Tool Execution Loop
-    msg_content = response['message']['content']
-    log_debug(f"LLM Response Content: {msg_content}")
-    
-    tool_calls = response['message'].get('tool_calls')
-    if tool_calls is None:
-        tool_calls = []
-
-    # If no native tool calls, check for manual JSON tool call
-    if not tool_calls:
-        try:
-            # Clean content (sometimes models add markdown code blocks)
-            clean_content = msg_content.strip()
-            if clean_content.startswith("```json"):
-                clean_content = clean_content[7:-3].strip()
-            elif clean_content.startswith("```"):
-                clean_content = clean_content[3:-3].strip()
-            
-            log_debug(f"Attempting JSON parse on: {clean_content}")
-            data = json.loads(clean_content)
-            
-            # Normalize single tool call vs list of calls
-            if isinstance(data, dict):
-                if 'tool' in data and 'arguments' in data:
-                    log_debug("Found single tool call in JSON")
-                    tool_calls.append({
-                        'function': {
-                            'name': data['tool'],
-                            'arguments': data['arguments']
-                        }
-                    })
-            elif isinstance(data, list):
-                log_debug("Found list of tool calls in JSON")
-                for item in data:
-                    if 'tool' in item and 'arguments' in item:
-                        tool_calls.append({
-                            'function': {
-                                'name': item['tool'],
-                                'arguments': item['arguments']
-                            }
-                        })
-        except json.JSONDecodeError:
-            log_debug("JSON Decode Error")
-            pass
-        except Exception as e:
-            log_debug(f"Error parsing manual JSON tool call: {e}")
-
-    messages.append(response['message'])
-    
-    # NEW: If tools are requested, STOP and return them to the controller/frontend
-    # This enables "Human-in-the-Loop"
-    if tool_calls:
-        log_debug(f"🛑 Tool calls detected: {len(tool_calls)}. Requesting approval.")
-        return {
-            "content": msg_content,
-            "tool_calls": tool_calls,
-            "messages": messages, # Return updated history
-            "status": "approval_required"
-        }
-
-    # If no tools, just return the content
-    return {
-        "content": msg_content,
-        "tool_calls": [],
-        "messages": messages,
-        "status": "complete"
-    }
+    # 4. Process Response
+    return _process_llm_response(response, messages)
 
 async def execute_tool_and_continue(model: str, messages: list, tool_call: dict, approved: bool = True, options: dict = None):
     """
     Executes a specific tool (if approved) and continues the chat.
+    This enables the Agentic Loop: Output -> Tool -> Output -> Tool...
     """
     if approved:
         function_name = tool_call['function']['name']
@@ -224,17 +233,139 @@ async def execute_tool_and_continue(model: str, messages: list, tool_call: dict,
         'content': str(result),
     })
 
-    # Call Ollama again to get the final response
+    # Call Ollama again to get the final (or next) response
     try:
+        # We need to re-fetch tools in case the model wants to call another one
+        tools = await mcp_manager.list_tools()
+
         final_response = await client.chat(
             model=model,
             messages=messages,
+            tools=tools, # Pass tools again for recursion
             options=options
         )
-        return {
-            "content": final_response['message']['content'],
-            "messages": messages + [final_response['message']],
-            "status": "complete"
-        }
+        
+        # Process the new response - this triggers the loop if it wants to call another tool
+        return _process_llm_response(final_response, messages)
+        
     except Exception as e:
         return {"error": f"Ollama Error after tool execution: {str(e)}"}
+
+async def _process_llm_stream(stream, messages):
+    full_content = ""
+    tool_calls = []
+    
+    async for chunk in stream:
+        content_delta = chunk['message'].get('content', '')
+        if content_delta:
+            full_content += content_delta
+            yield {"type": "content_delta", "content": content_delta}
+
+        tool_deltas = chunk['message'].get('tool_calls')
+        if tool_deltas:
+            for tool_delta in tool_deltas:
+                if len(tool_calls) <= tool_delta['index']:
+                    tool_calls.append({"function": {"name": "", "arguments": ""}, "type": "function"})
+                
+                if 'name' in tool_delta['function']:
+                    tool_calls[tool_delta['index']]['function']['name'] += tool_delta['function']['name']
+                if 'arguments' in tool_delta['function']:
+                    tool_calls[tool_delta['index']]['function']['arguments'] += tool_delta['function']['arguments']
+
+        if chunk.get('done'):
+            break
+            
+    messages.append({'role': 'assistant', 'content': full_content, 'tool_calls': tool_calls})
+
+    if tool_calls:
+        log_debug(f"🛑 Streamed tool calls detected: {len(tool_calls)}. Requesting approval.")
+        yield {
+            "type": "tool_calls",
+            "tool_calls": tool_calls,
+            "messages": messages
+        }
+    else:
+        yield {
+            "type": "complete",
+            "content": full_content,
+            "messages": messages
+        }
+
+
+async def stream_chat_with_tools(model: str, messages: list, options: dict = None):
+    log_debug(f"Starting stream chat with {model}")
+    # Persona injection logic...
+    last_user_msg = messages[-1]['content'].lower()
+    creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new"]
+    project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script"]
+    
+    is_creation_intent = any(kw in last_user_msg for kw in creation_keywords) and \
+                         any(kw in last_user_msg for kw in project_keywords)
+
+    has_system = messages and messages[0]['role'] == 'system'
+    if is_creation_intent and not has_system:
+        messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
+    elif not has_system:
+        messages.insert(0, {"role": "system", "content": "You are a helpful AI assistant..."})
+
+    tools = await mcp_manager.list_tools()
+
+    try:
+        stream = await client.chat(
+            model=model,
+            messages=messages,
+            tools=tools,
+            options=options,
+            stream=True
+        )
+        async for chunk in _process_llm_stream(stream, messages):
+            yield chunk
+
+    except Exception as e:
+        error_msg = str(e)
+        # Basic error handling for streaming
+        log_debug(f"Ollama Stream Error: {error_msg}")
+        yield {"type": "error", "error": f"Ollama Error: {error_msg}"}
+
+async def stream_execute_tool_and_continue(model: str, messages: list, tool_call: dict, approved: bool = True, options: dict = None):
+    if approved:
+        function_name = tool_call['function']['name']
+        function_args_str = tool_call['function']['arguments']
+        try:
+            function_args = json.loads(function_args_str)
+        except json.JSONDecodeError:
+            result = f"Error: Invalid JSON arguments provided for tool {function_name}"
+            log_debug(result)
+            yield {"type": "tool_result", "result": result}
+            messages.append({'role': 'tool', 'content': result})
+            # Fall through to let the model comment on the error
+        else:
+            log_debug(f"🔧 Executing tool: {function_name} with args {function_args}")
+            result = await mcp_manager.call_tool(function_name, function_args)
+    else:
+        log_debug(f"🚫 Tool execution denied: {tool_call['function']['name']}")
+        result = "User denied this action."
+    
+    log_debug(f"Tool result: {result}")
+    yield {"type": "tool_result", "result": str(result)}
+
+    messages.append({
+        'role': 'tool',
+        'content': str(result),
+    })
+
+    try:
+        tools = await mcp_manager.list_tools()
+        stream = await client.chat(
+            model=model,
+            messages=messages,
+            tools=tools,
+            options=options,
+            stream=True
+        )
+        async for chunk in _process_llm_stream(stream, messages):
+            yield chunk
+            
+    except Exception as e:
+        log_debug(f"Ollama Error after tool execution: {str(e)}")
+        yield {"type": "error", "error": f"Ollama Error after tool execution: {str(e)}"}

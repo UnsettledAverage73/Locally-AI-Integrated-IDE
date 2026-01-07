@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
@@ -45,6 +45,81 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const activeFileContent = openFiles.find((f) => f.path === activeFile)?.content || "";
+  const chatSocket = useRef<WebSocket | null>(null);
+
+  // WebSocket Chat Connection
+  useEffect(() => {
+    const connectChatSocket = () => {
+      if (chatSocket.current && chatSocket.current.readyState === WebSocket.OPEN) {
+        return;
+      }
+
+      const ws = new WebSocket("ws://127.0.0.1:8000/ws/ollama/chat_v2");
+      chatSocket.current = ws;
+
+      ws.onopen = () => {
+        console.log("Connected to Chat WebSocket");
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
+          case "content_delta":
+            setChatMessages(prev => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg && lastMsg.role === 'assistant') {
+                return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + data.content }];
+              }
+              return [...prev, { role: 'assistant', content: data.content }];
+            });
+            break;
+
+          case "tool_calls":
+            setChatMessages(prev => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg && lastMsg.role === 'assistant') {
+                 // Append tool call permission request
+                 return [...prev, { role: 'system', type: 'permission_request', content: 'Tool execution required', tool_calls: data.tool_calls }];
+              }
+              // This case should ideally not happen if content_delta comes first
+              return [...prev, { role: 'assistant', content: '', tool_calls: data.tool_calls }];
+            });
+            setIsChatLoading(false);
+            break;
+            
+          case "complete":
+            setIsChatLoading(false);
+            break;
+            
+          case "error":
+            toast({
+              title: "AI Stream Error",
+              description: data.error,
+              variant: "destructive",
+            });
+            setIsChatLoading(false);
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("Chat WebSocket disconnected. Reconnecting...");
+        setTimeout(connectChatSocket, 1000); // Reconnect after 1 second
+      };
+
+      ws.onerror = (err) => {
+        console.error("Chat WebSocket error:", err);
+        ws.close();
+      };
+    };
+
+    connectChatSocket();
+
+    return () => {
+      chatSocket.current?.close();
+    };
+  }, []);
 
   // Initial Boot
   useEffect(() => {
@@ -308,67 +383,67 @@ function App() {
   };
 
   const handleSendMessage = async (content: string) => {
-    const newMessages: ChatMessage[] = [
-        ...chatMessages, 
-        { role: "user", content }
-    ];
+    if (!chatSocket.current || chatSocket.current.readyState !== WebSocket.OPEN) {
+        toast({ title: "AI not connected", description: "Chat service is not available.", variant: "destructive" });
+        return;
+    }
+
+    const userMessage: ChatMessage = { role: "user", content };
+    const newMessages = [...chatMessages, userMessage];
     setChatMessages(newMessages);
     setIsChatLoading(true);
 
     try {
-      // Add context if file is open and Ollama is available
-      let context = "";
-      if (activeFile && ollamaAvailable) {
-        const { context: ragContext } = await rag.getContext(content, activeFile);
-        context = ragContext;
-      }
+        let context = "";
+        if (activeFile && ollamaAvailable) {
+            const { context: ragContext } = await rag.getContext(content, activeFile);
+            context = ragContext;
+        }
 
-      const messagesToSend = context 
-        ? [{ role: "system" as const, content: `Context: ${context}` }, ...newMessages]
-        : newMessages;
+        const messagesToSend = context
+            ? [{ role: "system" as const, content: `Context: ${context}` }, ...newMessages]
+            : newMessages;
+        
+        const model = localStorage.getItem("ai_model") || "deepseek-coder";
+        const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
 
-      const response = await llm.chat(messagesToSend);
-      
-      if (response.messages) {
-          setChatMessages(response.messages);
-      } else {
-          setChatMessages(prev => [
-            ...prev,
-            { role: "assistant", content: response.content }
-          ]);
-      }
+        chatSocket.current.send(JSON.stringify({
+            type: "chat",
+            model,
+            messages: messagesToSend,
+            options: { temperature: temp }
+        }));
     } catch (error) {
-      toast({
-        title: "AI Error",
-        description: "Could not reach Ollama.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsChatLoading(false);
-    }  
+        toast({
+            title: "AI Error",
+            description: "Could not send message to Ollama.",
+            variant: "destructive",
+        });
+        setIsChatLoading(false);
+    }
   };
 
   const handleToolAction = async (toolCall: ToolCall, approved: boolean) => {
-      setIsChatLoading(true);
-      try {
-          const response = await llm.executeTool(
-              chatMessages, 
-              toolCall, 
-              approved
-          );
-          
-          if (response.messages) {
-              setChatMessages(response.messages);
-          }
-      } catch (error) {
-          toast({
-              title: "Tool Error",
-              description: "Failed to execute tool action.",
-              variant: "destructive",
-          });
-      } finally {
-          setIsChatLoading(false);
+      if (!chatSocket.current || chatSocket.current.readyState !== WebSocket.OPEN) {
+          toast({ title: "AI not connected", description: "Cannot execute tool action.", variant: "destructive" });
+          return;
       }
+      setIsChatLoading(true);
+
+      // Remove the permission request message
+      setChatMessages(prev => prev.filter(msg => msg.type !== 'permission_request'));
+
+      const model = localStorage.getItem("ai_model") || "deepseek-coder";
+      const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
+
+      chatSocket.current.send(JSON.stringify({
+          type: "tool_exec",
+          model,
+          messages: chatMessages,
+          tool_call: toolCall,
+          approved,
+          options: { temperature: temp }
+      }));
   };
 
   if (isBooting) {
