@@ -1,3 +1,6 @@
+# Ensure Ollama is running
+./start_ollama.sh
+
 cd backend
 python -m venv venv
 source venv/bin/activate
