@@ -25,8 +25,12 @@ pyinstaller \
     --onefile \
     --name localdev-api \
     --distpath "$OUTPUT_DIR" \
+    --paths="." \
     --hidden-import="ollama" \
     --hidden-import="lancedb" \
+    --hidden-import="telemetry" \
+    --hidden-import="services" \
+    --hidden-import="services.model_loader" \
     "$MAIN_SCRIPT"
 deactivate
 

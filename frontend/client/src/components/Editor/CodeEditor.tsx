@@ -5,6 +5,27 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { llm, optimizer } from "@/api/client";
 import { useAutoSave } from "../../hooks/useAutoSave";
+import { createLanguageClient } from "@/lib/language-client";
+import { MonacoLanguageClient } from 'monaco-languageclient';
+
+const getLanguage = (filePath: string) => {
+  if (!filePath) return "typescript";
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "py": return "python";
+    case "js":
+    case "jsx": return "javascript";
+    case "ts":
+    case "tsx": return "typescript";
+    case "html": return "html";
+    case "css": return "css";
+    case "json": return "json";
+    case "md": return "markdown";
+    case "sql": return "sql";
+    case "txt": return "plaintext";
+    default: return "plaintext";
+  }
+};
 
 interface CodeEditorProps {
   content: string;
@@ -192,8 +213,7 @@ export default function CodeEditor({
       <div className="flex-1 relative overflow-hidden">
         <Editor
           height="100%"
-          defaultLanguage="typescript"
-          language={filePath.endsWith(".json") ? "json" : filePath.endsWith(".css") ? "css" : filePath.endsWith(".html") ? "html" : "typescript"}
+          language={getLanguage(filePath)}
           theme="vs-dark"
           path={filePath} // This helps Monaco reset state when file changes
           value={content}

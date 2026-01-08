@@ -3,10 +3,10 @@
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[],
-    hiddenimports=['ollama', 'lancedb'],
+    hiddenimports=['ollama', 'lancedb', 'telemetry', 'services', 'services.model_loader'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

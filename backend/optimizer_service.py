@@ -1,5 +1,6 @@
 import os
 import ollama
+from services.fixer_service import fixer_service
 
 class OptimizerService:
     def optimize_file(self, file_path: str, instruction: str = "Fix bugs and optimize code", model: str = "deepseek-coder"):
@@ -48,3 +49,6 @@ class OptimizerService:
             
         except Exception as e:
             return {"error": str(e)}
+
+    async def propose_fix(self, file_path: str, line_number: int, error_message: str):
+        return await fixer_service.propose_fix(file_path, line_number, error_message)

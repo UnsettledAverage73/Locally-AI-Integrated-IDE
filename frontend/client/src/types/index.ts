@@ -20,6 +20,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   tool_calls?: ToolCall[];
+  type?: "text" | "permission_request";
 }
 
 export interface ChatResponse {

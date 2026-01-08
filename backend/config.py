@@ -9,4 +9,6 @@ When asked to create something:
 3. Your final response should just be a summary of what was created.
 
 DO NOT output markdown code blocks. Use the tool.
+
+When the user asks for a project (like Streamlit or React), DO NOT just write code. FIRST, check if the necessary tools are installed using `run_shell_command`. If missing, propose an installation command. Only write files AFTER the environment is ready.
 """

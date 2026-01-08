@@ -60,15 +60,27 @@ export default function ModelSettings() {
   // ... loadData ...
   const loadData = async () => {
     setLoading(true);
+    
+    // Load models
     try {
-      const [modelsData, statsData] = await Promise.all([
-        llm.models(),
-        system.getStats(),
-      ]);
+      const modelsData = await llm.models();
       setInstalledModels(modelsData.models);
+    } catch (error) {
+      console.error("Failed to load models", error);
+      toast({ 
+        title: "Model Error", 
+        description: "Could not list Ollama models.", 
+        variant: "destructive" 
+      });
+    }
+
+    // Load system stats
+    try {
+      const statsData = await system.getStats();
       setSystemStats(statsData);
     } catch (error) {
-      console.error("Failed to load settings data", error);
+       console.error("Failed to load system stats", error);
+       // Don't toast for stats, it's less critical
     } finally {
       setLoading(false);
     }
@@ -78,6 +90,7 @@ export default function ModelSettings() {
     setActiveModel(val);
     localStorage.setItem("ai_model", val);
   };
+// ... rest of file ...
 
   const handlePullModel = (modelName: string) => {
     startDownload(modelName);
@@ -180,7 +193,13 @@ export default function ModelSettings() {
 
       {/* Installed Models List - Same as before */}
       <div className="space-y-2">
-        <Label>Installed Models</Label>
+        <div className="flex items-center justify-between">
+            <Label>Installed Models</Label>
+            <Button variant="ghost" size="sm" onClick={loadData} disabled={loading} className="h-6 text-xs">
+                {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1"/> : null}
+                Refresh
+            </Button>
+        </div>
         <div className="border rounded-md divide-y">
             {installedModels.length === 0 ? (
                 <div className="p-4 text-center text-sm text-muted-foreground">No models installed.</div>

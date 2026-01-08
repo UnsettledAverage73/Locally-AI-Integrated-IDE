@@ -22,6 +22,7 @@ if sys.platform != "win32":
 
 # --- SERVICES ---
 from services import OllamaService, RAGService
+from services.resource_monitor import get_system_resources as get_full_system_resources
 from bedrock_service import BedrockService
 from git_service import GitService
 from optimizer_service import OptimizerService
@@ -170,6 +171,11 @@ class OptimizeRequest(BaseModel):
     file_path: str
     instruction: str
     model: str | None = "deepseek-coder"
+
+class ProposeFixRequest(BaseModel):
+    file_path: str
+    line_number: int
+    error_message: str
 
 class ExecuteToolRequest(BaseModel):
     model: str
@@ -344,14 +350,7 @@ async def ollama_delete(model_name: str):
 
 @app.get("/api/system-resources")
 async def get_system_resources():
-    mem = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
-    return {
-        "ram_total_gb": round(mem.total / (1024**3), 2),
-        "ram_available_gb": round(mem.available / (1024**3), 2),
-        "disk_total_gb": round(disk.total / (1024**3), 2),
-        "disk_free_gb": round(disk.free / (1024**3), 2),
-    }
+    return get_full_system_resources()
 
 @app.post("/ollama/chat")
 async def ollama_chat(request: ChatRequest):
@@ -528,6 +527,10 @@ async def fs_apply_diff(request: WriteFileRequest):
 def optimize_file_endpoint(req: OptimizeRequest):
     return optimizer.optimize_file(req.file_path, req.instruction, req.model)
 
+@app.post("/optimizer/propose-fix")
+async def propose_fix_endpoint(req: ProposeFixRequest):
+    return await optimizer.propose_fix(req.file_path, req.line_number, req.error_message)
+
 # --- TERMINAL ENDPOINT ---
 
 @app.websocket("/ws/terminal")
@@ -669,6 +672,71 @@ async def watch_directory(request: FileOperationRequest):
         return {"status": "success", "watching": request.path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws/lsp")
+async def lsp_websocket(websocket: WebSocket):
+    await websocket.accept()
+    
+    language_server_process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "backend.language_server",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    async def forward_to_server():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                if language_server_process.stdin:
+                    language_server_process.stdin.write(data)
+                    await language_server_process.stdin.drain()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            if language_server_process.returncode is None:
+                language_server_process.kill()
+
+    async def forward_to_client():
+        try:
+            while True:
+                if language_server_process.stdout:
+                    data = await language_server_process.stdout.read(4096)
+                    if not data:
+                        break
+                    await websocket.send_bytes(data)
+        except Exception:
+            pass
+
+    async def log_stderr():
+        try:
+            while True:
+                if language_server_process.stderr:
+                    line = await language_server_process.stderr.readline()
+                    if not line:
+                        break
+                    print(f"LSP stderr: {line.decode().strip()}")
+        except Exception:
+            pass
+
+    forward_to_server_task = asyncio.create_task(forward_to_server())
+    forward_to_client_task = asyncio.create_task(forward_to_client())
+    log_stderr_task = asyncio.create_task(log_stderr())
+
+    try:
+        done, pending = await asyncio.wait(
+            {forward_to_server_task, forward_to_client_task, log_stderr_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    finally:
+        if language_server_process.returncode is None:
+            language_server_process.kill()
+        await language_server_process.wait()
+
 
 if __name__ == "__main__":
     import uvicorn

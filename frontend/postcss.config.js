@@ -1,6 +1,9 @@
+javascript
 export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
+  plugins: [
+    // Tailwind CSS plugin
+    tailwindcss({
+      autoprefixer: true,
+    }),
+  ],
 }

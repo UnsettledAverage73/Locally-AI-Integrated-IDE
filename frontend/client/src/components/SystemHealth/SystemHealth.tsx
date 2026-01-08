@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, Zap, AlertTriangle, BarChart } from "lucide-react";
 import { apiClient } from "@/api/client"; 
+import SystemResources from "../SystemResources";
 
 interface OpsStats {
   avg_latency: number;
@@ -54,39 +55,55 @@ export default function SystemHealth() {
   return (
     <div className="h-full flex flex-col">
       <div className="p-2 text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
-        LLM Operations
+        System Status
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {loading && !stats && <p className="text-muted-foreground">Loading stats...</p>}
-        {error && <p className="text-destructive">{error}</p>}
-        {stats && (
-          <div className="grid gap-4 md:grid-cols-2">
-            <StatCard
-              title="Total Requests"
-              value={stats.total_requests}
-              icon={<BarChart className="h-4 w-4 text-muted-foreground" />}
-            />
-            <StatCard
-              title="Avg Latency"
-              value={`${stats.avg_latency.toFixed(0)}`}
-              unit="ms"
-              icon={<Zap className="h-4 w-4 text-muted-foreground" />}
-            />
-            <StatCard
-              title="Error Rate"
-              value={`${stats.error_rate.toFixed(2)}`}
-              unit="%"
-              icon={<AlertTriangle className="h-4 w-4 text-muted-foreground" />}
-            />
-            <StatCard
-              title="Est. Cost Saved (vs GPT-4)"
-              value={`$${stats.estimated_cost_saved.toFixed(2)}`}
-              icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
-            />
-          </div>
-        )}
-        <div className="text-xs text-muted-foreground pt-4">
-            Stats refresh automatically every 10 seconds. This dashboard provides real-time observability into the performance and cost-efficiency of the locally-run models.
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        
+        {/* Hardware Section */}
+        <section>
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                Hardware Resources
+            </h3>
+            <SystemResources />
+        </section>
+
+        {/* LLM Ops Section */}
+        <section>
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                LLM Operations
+            </h3>
+            {loading && !stats && <p className="text-muted-foreground">Loading stats...</p>}
+            {error && <p className="text-destructive">{error}</p>}
+            {stats && (
+            <div className="grid gap-4 md:grid-cols-2">
+                <StatCard
+                title="Total Requests"
+                value={stats.total_requests}
+                icon={<BarChart className="h-4 w-4 text-muted-foreground" />}
+                />
+                <StatCard
+                title="Avg Latency"
+                value={`${stats.avg_latency.toFixed(0)}`}
+                unit="ms"
+                icon={<Zap className="h-4 w-4 text-muted-foreground" />}
+                />
+                <StatCard
+                title="Error Rate"
+                value={`${stats.error_rate.toFixed(2)}`}
+                unit="%"
+                icon={<AlertTriangle className="h-4 w-4 text-muted-foreground" />}
+                />
+                <StatCard
+                title="Est. Cost Saved"
+                value={`$${stats.estimated_cost_saved.toFixed(2)}`}
+                icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
+                />
+            </div>
+            )}
+        </section>
+
+        <div className="text-xs text-muted-foreground pt-4 border-t border-border/50">
+            Stats refresh automatically. This dashboard provides real-time observability into the performance and cost-efficiency of the locally-run models.
         </div>
       </div>
     </div>

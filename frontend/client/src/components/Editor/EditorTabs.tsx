@@ -19,6 +19,9 @@ export default function EditorTabs({
     if (path.endsWith(".tsx") || path.endsWith(".ts") || path.endsWith(".js") || path.endsWith(".jsx")) {
       return <FileCode className="w-3.5 h-3.5 text-blue-400" />;
     }
+    if (path.endsWith(".py")) {
+      return <FileCode className="w-3.5 h-3.5 text-yellow-300" />; // Python
+    }
     if (path.endsWith(".json")) {
       return <FileJson className="w-3.5 h-3.5 text-yellow-400" />;
     }

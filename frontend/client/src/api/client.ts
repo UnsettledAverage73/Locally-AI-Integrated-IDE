@@ -172,14 +172,31 @@ export const llm = {
   }
 };
 
-export const system = {
-    getStats: async (): Promise<{ ram_total_gb: number; ram_available_gb: number; disk_total_gb: number; disk_free_gb: number }> => {
-        if (USE_MOCKS) return { ram_total_gb: 16, ram_available_gb: 8, disk_total_gb: 500, disk_free_gb: 100 };
-        const { data } = await apiClient.get("/api/system-resources");
-        return data;
-    }
-};
-
+  export const system = {
+      getStats: async (): Promise<{ 
+          ram_total_gb: number; 
+          ram_available_gb: number; 
+          disk_total_gb: number; 
+          disk_free_gb: number;
+          cpu?: string;
+          ram?: string;
+          gpu?: { available: boolean; name: string; vram: string; load: string };
+          ollama?: { status: string; mode: string };
+      }> => {
+          if (USE_MOCKS) return { 
+              ram_total_gb: 16, 
+              ram_available_gb: 8, 
+              disk_total_gb: 500, 
+              disk_free_gb: 100,
+              cpu: "12%",
+              ram: "50%",
+              gpu: { available: true, name: "Mock GPU", vram: "8GB", load: "20%" },
+              ollama: { status: "online", mode: "🔥 GPU" }
+          };
+          const { data } = await apiClient.get("/api/system-resources");
+          return data;
+      }
+  };
 export const git = {
     status: async (): Promise<{ changes: { code: string; path: string }[] }> => {
         if (USE_MOCKS) return { changes: [] };
@@ -238,6 +255,17 @@ export const optimizer = {
             return { status: "success", message: "Mock optimization complete" };
         }
         const { data } = await apiClient.post("/files/optimize", { file_path: path, instruction, model });
+        return data;
+    },
+    proposeFix: async (filePath: string, lineNumber: number, errorMessage: string): Promise<{ diff?: string; fixed_content?: string; error?: string }> => {
+        if (USE_MOCKS) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return { 
+                diff: `--- a/${filePath}\n+++ b/${filePath}\n@@ -${lineNumber},1 +${lineNumber},1 @@\n- console.error("Something went wrong");\n+ console.log("Something went right");`,
+                fixed_content: `// Mock fixed content\nconsole.log("Something went right");`
+            };
+        }
+        const { data } = await apiClient.post("/optimizer/propose-fix", { file_path: filePath, line_number: lineNumber, error_message: errorMessage });
         return data;
     }
 };

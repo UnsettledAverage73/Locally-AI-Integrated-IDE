@@ -5,18 +5,23 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
+import Welcome from "@/components/Editor/Welcome";
 import EditorTabs from "@/components/Editor/EditorTabs";
 import ChatPanel from "@/components/AI/ChatPanel";
 import Terminal from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SourceControl from "@/components/Git/SourceControl";
 import SystemHealth from "@/components/SystemHealth/SystemHealth";
+import BootScreen from "@/components/SystemHealth/BootScreen";
 import { Button } from "@/components/ui/button";
 import { fs, rag, llm, git } from "@/api/client";
 import { FileEntry, ChatMessage, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DownloadProvider } from "@/context/DownloadContext";
 import { DownloadWidget } from "@/components/DownloadWidget";
+import { motion } from "framer-motion";
+import Header from "@/components/Layout/Header";
+import StatusBar from "@/components/Layout/StatusBar";
 
 interface OpenFile {
   path: string;
@@ -447,35 +452,18 @@ function App() {
   };
 
   if (isBooting) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-background text-primary">
-        <Loader2 className="w-10 h-10 animate-spin mb-4" />
-        <p className="font-mono animate-pulse">INITIALIZING LOCALDEV ENV...</p>
-      </div>
-    );
+    return <BootScreen />;
   }
 
   return (
     <DownloadProvider>
-      <div className="h-screen w-screen bg-background text-foreground overflow-hidden flex flex-col">
-         {/* Top Bar */}
-         <header className="h-10 border-b border-border bg-card/50 backdrop-blur flex items-center px-4 justify-between select-none">
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 rounded-full bg-red-500/50" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500/50" />
-              <div className="w-3 h-3 rounded-full bg-green-500/50" />
-              <span className="ml-4 font-display font-bold text-lg tracking-widest text-foreground/80">LOCALDEV</span>
-            </div>
-            <div className="flex items-center gap-2">
-               <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(true)} className="h-8 w-8 hover:bg-muted">
-                  <Settings className="w-4 h-4 text-muted-foreground" />
-               </Button>
-               <div className="flex items-center text-xs text-muted-foreground font-mono bg-black/20 px-2 py-1 rounded">
-                  <Command className="w-3 h-3 mr-2" />
-                  v1.0.0-alpha
-               </div>
-            </div>
-         </header>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="h-screen w-screen bg-background text-foreground overflow-hidden flex flex-col"
+      >
+         <Header onSettingsClick={() => setIsSettingsOpen(true)} />
 
          {/* Main Layout */}
          <div className="flex-1 overflow-hidden flex">
@@ -576,14 +564,7 @@ function App() {
                                     </div>
                                 </>
                             ) : (
-                                <CodeEditor 
-                                    content="" 
-                                    filePath={null} 
-                                    onChange={() => {}}
-                                    onSave={() => {}}
-                                    onIndex={() => {}}
-                                    isIndexing={false}
-                                />
+                                <Welcome onOpenFolder={handleOpenFolder} onOpenFile={handleOpenFiles} />
                             )}
                           </div>
                       </ResizablePanel>
@@ -617,20 +598,12 @@ function App() {
          </div>
          
          {/* Status Bar */}
-         <footer className="h-6 border-t border-border bg-card text-xs flex items-center px-4 justify-between text-muted-foreground font-mono">
-             <div className="flex space-x-4">
-                <span>Branch: <span className="text-primary">{currentBranch}</span></span>
-                <span>Errors: 0</span>
-             </div>
-             <div>
-                {activeFile ? "UTF-8" : "No File"}
-             </div>
-         </footer>
+         <StatusBar currentBranch={currentBranch} activeFile={activeFile} />
 
          <Toaster />
          <DownloadWidget />
          <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-      </div>
+      </motion.div>
     </DownloadProvider>
   );
 }

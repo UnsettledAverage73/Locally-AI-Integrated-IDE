@@ -2,7 +2,10 @@ import ollama
 import lancedb
 import os
 import traceback
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
+def log_debug(msg):
+    with open("debug_rag.log", "a") as f:
+        f.write(f"{msg}\n")
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,13 +46,35 @@ class OllamaService:
             print(f"Error listing models: {e}")
             return []
 
-    async def generate_embedding(self, text: str) -> List[float]:
+    async def generate_embedding(self, texts: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
+        log_debug(f"Generating embedding for type: {type(texts)}")
         try:
-            response = await self.client.embeddings(model=EMBEDDING_MODEL, prompt=text)
-            return response["embedding"]
+            if isinstance(texts, str):
+                log_debug(f"Generating embedding for single string (len: {len(texts)})")
+                response = await self.client.embeddings(model=EMBEDDING_MODEL, prompt=texts)
+                log_debug("Got response for single embedding")
+                return response["embedding"]
+            elif isinstance(texts, list) and all(isinstance(t, str) for t in texts):
+                log_debug(f"Generating embedding for list of strings (count: {len(texts)})")
+                # Handle list of strings for batch embedding
+                # The ollama client.embeddings method can take a list of prompts
+                responses = await self.client.embeddings(model=EMBEDDING_MODEL, prompt=texts)
+                log_debug("Got response for batch embedding")
+                # The response structure for multiple prompts is a list of dicts, each with an 'embedding' key
+                # Note: Check if response has 'embeddings' key (new API) or is a list (older API)
+                if isinstance(responses, dict) and "embeddings" in responses:
+                     log_debug(f"Returning {len(responses['embeddings'])} embeddings from dictionary response")
+                     return [res["embedding"] for res in responses["embeddings"]]
+                else:
+                    log_debug(f"Unexpected batch response structure: {type(responses)}")
+                    return []
+            else:
+                log_debug(f"Embedding error: Invalid input type for texts. Expected str or List[str], got {type(texts)}")
+                return [] if isinstance(texts, list) else [] # Return appropriate empty type
         except Exception as e:
-            print(f"Embedding error: {str(e)}")
-            return []
+            log_debug(f"Embedding error: {str(e)}")
+            traceback.print_exc()
+            return [] if isinstance(texts, list) else [] # Return appropriate empty type
 
     async def stream_completion(self, model: str, prompt: str):
         try:
@@ -179,17 +204,23 @@ class RAGService:
 
     def initialize_db(self):
         try:
+            log_debug(f"Initializing LanceDB at {self.db_path}")
             self.db = lancedb.connect(self.db_path)
+            log_debug(f"DB connection established. Type: {type(self.db)}, Truthy: {bool(self.db)}")
             try:
                 self.table = self.db.open_table("code_index")
+                log_debug("Opened existing table 'code_index'")
             except Exception:
                 self.table = None
+                log_debug("Table 'code_index' not found (will be created on first index)")
         except Exception as e:
             print(f"Error initializing LanceDB: {e}")
+            log_debug(f"Error initializing LanceDB: {e}")
             self.db = None
             self.table = None
 
     async def _chunk_code(self, content: str, max_chunk_size: int = 1000) -> List[Dict[str, Any]]:
+        log_debug(f"Chunking content of size: {len(content)}")
         lines = content.split('\n')
         chunks = []
         current_chunk_lines = []
@@ -217,47 +248,99 @@ class RAGService:
                 "start_line": start_line,
                 "end_line": len(lines) - 1,
             })
+        log_debug(f"Generated {len(chunks)} chunks.")
         return chunks
 
     async def index_file(self, file_path: str, content: str):
-        if not self.ollama_service or not self.db:
+        log_debug(f"Attempting to index file: {file_path}")
+        
+        if not self.db:
+            log_debug("DB not initialized. Attempting to initialize...")
+            self.initialize_db()
+            
+        if not self.ollama_service:
+            log_debug("Ollama service is missing. Cannot index.")
+            return
+
+        if not self.db:
+            log_debug("DB initialization failed. Skipping indexing.")
             return
 
         if file_path in self.indexed_files:
+            log_debug(f"File {file_path} already indexed. Skipping.")
             return 
         
         chunks = await self._chunk_code(content)
+        
+        if not chunks: # No chunks to index
+            log_debug(f"No chunks generated for {file_path}. Skipping indexing.")
+            return
+
+        chunk_contents = [chunk["content"] for chunk in chunks]
+        
+        log_debug(f"Generating embeddings for {len(chunk_contents)} chunks from {file_path} in batch.")
+        embeddings = await self.ollama_service.generate_embedding(chunk_contents)
+        
+        log_debug(f"Received {len(embeddings) if embeddings else 0} embeddings.")
+
+        # Ensure that embeddings were generated and the count matches chunks
+        if not embeddings or len(embeddings) != len(chunks):
+            log_debug(f"Warning: Failed to generate embeddings for all chunks in {file_path}. Skipping indexing.")
+            return
+
         records = []
-        for chunk in chunks:
-            embedding = await self.ollama_service.generate_embedding(chunk["content"])
-            if embedding:
-                records.append({
-                    "path": file_path,
-                    "content": chunk["content"],
-                    "start_line": chunk["start_line"],
-                    "end_line": chunk["end_line"],
-                    "vector": embedding, 
-                })
+        for i, chunk in enumerate(chunks):
+            records.append({
+                "path": file_path,
+                "content": chunk["content"],
+                "start_line": chunk["start_line"],
+                "end_line": chunk["end_line"],
+                "vector": embeddings[i],
+            })
         
         if records:
             if not self.table:
+                log_debug(f"Creating new LanceDB table 'code_index' for {file_path}.")
                 self.table = self.db.create_table("code_index", data=records)
             else:
+                log_debug(f"Adding {len(records)} records to existing 'code_index' table for {file_path}.")
                 self.table.add(records)
             self.indexed_files.add(file_path)
+            log_debug(f"Successfully indexed {file_path}.")
+        else:
+            log_debug(f"No records to add for {file_path}.")
 
     async def get_context(self, query: str, current_file: str = None, limit: int = 5) -> str:
+        log_debug(f"Getting context for query: '{query}' (current_file: {current_file})")
+        
+        if not self.table:
+             # Try initializing if table is missing (might be first run or connection issue)
+             if not self.db:
+                 self.initialize_db()
+             # If db is now present but table still None, try opening it explicitly (in case it was created by another process/thread)
+             if self.db and not self.table:
+                 try:
+                     self.table = self.db.open_table("code_index")
+                 except:
+                     pass
+
         if not self.ollama_service or not self.table:
+            log_debug("Ollama service or DB table not initialized. Returning empty context.")
             return ""
 
+        log_debug(f"Generating embedding for query: '{query}'")
         query_embedding = await self.ollama_service.generate_embedding(query)
         if not query_embedding:
+            log_debug("Failed to generate embedding for query. Returning empty context.")
             return ""
 
+        log_debug(f"Searching LanceDB with query embedding. Limit: {limit}")
         results = self.table.search(query_embedding).limit(limit).to_list()
+        log_debug(f"Found {len(results)} results from LanceDB.")
 
         context = []
         for res in results:
+            log_debug(f"Retrieved result from {res['path']} (lines {res['start_line']}-{res['end_line']})")
             context.append(f"File: {res['path']} (lines {res['start_line']}-{res['end_line']})\n{res['content']}")
         
         return "\n\n".join(context)

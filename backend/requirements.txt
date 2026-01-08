@@ -13,3 +13,5 @@ pyinstaller
 watchdog
 httpx
 mcp
+pygls
+jedi

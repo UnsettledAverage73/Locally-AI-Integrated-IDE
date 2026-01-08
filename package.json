@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "npm run start:dev",
-    "start:dev": "node -e \"const cp = require('child_process'); const electron = require('electron'); cp.spawn('bash', ['-c', './backend.sh &'], { stdio: 'inherit' }); cp.spawn('bash', ['-c', 'cd frontend && npm i && npm run dev:client &'], { stdio: 'inherit' }); cp.spawn(electron, ['.'], { stdio: 'inherit' });\"",
+    "start:dev": "node -e \"const cp = require('child_process'); const electron = require('electron'); cp.spawn('bash', ['-c', './backend.sh &'], { stdio: 'inherit' }); cp.spawn('bash', ['-c', 'cd backend && source venv/bin/activate && python -m language_server &'], { stdio: 'inherit' }); cp.spawn('bash', ['-c', 'cd frontend && npm i && npm run dev:client &'], { stdio: 'inherit' }); cp.spawn(electron, ['.'], { stdio: 'inherit' });\"",
     "build": "rm -rf dist && mkdir -p dist && npm run build:frontend && npm run build:backend && cp -r frontend/dist/. dist/ && cp -r electron dist/electron && node -e \"const pkg = require('./package.json'); delete pkg.build; delete pkg.scripts; delete pkg.devDependencies; require('fs').writeFileSync('dist/package.json', JSON.stringify(pkg, null, 2));\" && electron-builder",
     "build:frontend": "cd frontend && npm install && npm run build",
     "build:backend": "./build_backend.sh"
