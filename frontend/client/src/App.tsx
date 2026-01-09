@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import Welcome from "@/components/Editor/Welcome";
@@ -10,6 +10,7 @@ import EditorTabs from "@/components/Editor/EditorTabs";
 import ChatPanel from "@/components/AI/ChatPanel";
 import Terminal from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
+import SearchPanel from "@/components/Search/SearchPanel";
 import SourceControl from "@/components/Git/SourceControl";
 import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import BootScreen from "@/components/SystemHealth/BootScreen";
@@ -37,7 +38,7 @@ function App() {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system'>('explorer');
+  const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system' | 'search'>('explorer');
   const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
   
   // Loading States
@@ -481,6 +482,15 @@ function App() {
               <Button
                   variant="ghost"
                   size="icon"
+                  className={cn("h-10 w-10", activeView === 'search' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                  onClick={() => setActiveView('search')}
+                  title="Search"
+              >
+                  <Search className="w-5 h-5" />
+              </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
                   className={cn("h-10 w-10", activeView === 'git' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
                   onClick={() => setActiveView('git')}
                   title="Source Control"
@@ -533,6 +543,7 @@ function App() {
                           </div>
                       </div>
                   )}
+                  {activeView === 'search' && <SearchPanel onFileClick={handleFileClick} />}
                   {activeView === 'git' && <SourceControl />}
                   {activeView === 'system' && <SystemHealth />}
               </ResizablePanel>

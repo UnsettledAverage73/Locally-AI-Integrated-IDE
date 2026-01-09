@@ -28,7 +28,7 @@ from git_service import GitService
 from optimizer_service import OptimizerService
 from services.llm_service import chat_with_tools, execute_tool_and_continue, stream_chat_with_tools, stream_execute_tool_and_continue
 from services.model_loader import ensure_nomic_model
-from routers import files
+from routers import files, search
 from file_watcher import start_watcher
 
 # --- WEBSOCKET MANAGER ---
@@ -114,6 +114,7 @@ optimizer = OptimizerService()
 
 # --- ROUTER REGISTRATION ---
 app.include_router(files.router)
+app.include_router(search.router, prefix="/search", tags=["search"])
 
 # --- DATA MODELS ---
 

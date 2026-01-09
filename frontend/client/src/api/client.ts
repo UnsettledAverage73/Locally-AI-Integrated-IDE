@@ -248,6 +248,19 @@ export const git = {
     }
 };
 
+export const search = {
+    searchFilenames: async (query: string, path: string = "."): Promise<{ results: string }> => {
+        if (USE_MOCKS) return { results: "mock/file.ts\nmock/other.py" };
+        const { data } = await apiClient.post("/search/filenames", { query, path });
+        return data;
+    },
+    searchText: async (query: string, path: string = "."): Promise<{ results: string }> => {
+        if (USE_MOCKS) return { results: "mock/file.ts:10: const x = 'hello'\n" };
+        const { data } = await apiClient.post("/search/text", { query, path });
+        return data;
+    }
+};
+
 export const optimizer = {
     optimizeFile: async (path: string, instruction: string, model: string = "deepseek-coder"): Promise<{ status: string; message: string }> => {
         if (USE_MOCKS) {
