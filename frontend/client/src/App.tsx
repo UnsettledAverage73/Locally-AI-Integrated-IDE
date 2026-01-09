@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import Welcome from "@/components/Editor/Welcome";
@@ -11,6 +11,7 @@ import ChatPanel from "@/components/AI/ChatPanel";
 import Terminal from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SearchPanel from "@/components/Search/SearchPanel";
+import FileManager from "@/components/FileManager/FileManager";
 import SourceControl from "@/components/Git/SourceControl";
 import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import BootScreen from "@/components/SystemHealth/BootScreen";
@@ -40,6 +41,14 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system' | 'search'>('explorer');
   const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
+  
+  const handleOpenFileManager = () => {
+    const path = "system://file-manager";
+    if (!openFiles.find(f => f.path === path)) {
+        setOpenFiles(prev => [...prev, { path, content: "" }]);
+    }
+    setActiveFile(path);
+  };
   
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
@@ -491,6 +500,15 @@ function App() {
               <Button
                   variant="ghost"
                   size="icon"
+                  className={cn("h-10 w-10 text-muted-foreground")}
+                  onClick={handleOpenFileManager}
+                  title="Open File Manager"
+              >
+                  <LayoutGrid className="w-5 h-5" />
+              </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
                   className={cn("h-10 w-10", activeView === 'git' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
                   onClick={() => setActiveView('git')}
                   title="Source Control"
@@ -564,14 +582,21 @@ function App() {
                                         onTabClose={handleTabClose} 
                                     />
                                     <div className="flex-1 overflow-hidden">
-                                        <CodeEditor 
-                                            content={activeFileContent} 
-                                            filePath={activeFile} 
-                                            onChange={handleEditorChange}
-                                            onSave={handleSave}
-                                            onIndex={handleIndex}
-                                            isIndexing={isIndexing}
-                                        />
+                                        {activeFile === "system://file-manager" ? (
+                                            <FileManager 
+                                                initialPath={rootPath} 
+                                                onFileOpen={handleFileClick} 
+                                            />
+                                        ) : (
+                                            <CodeEditor 
+                                                content={activeFileContent} 
+                                                filePath={activeFile} 
+                                                onChange={handleEditorChange}
+                                                onSave={handleSave}
+                                                onIndex={handleIndex}
+                                                isIndexing={isIndexing}
+                                            />
+                                        )}
                                     </div>
                                 </>
                             ) : (
