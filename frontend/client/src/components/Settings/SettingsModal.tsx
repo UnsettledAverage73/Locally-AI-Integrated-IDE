@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Paintbrush, Moon, Sun, Monitor } from "lucide-react";
 import axios from "axios";
 import ModelSettings from "./ModelSettings";
+import GitHubSettings from "./GitHubSettings";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -96,9 +97,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </DialogHeader>
         
         <Tabs defaultValue="environment" value={activeTab} onValueChange={setActiveTab} className="w-full mt-4">
-            <TabsList className="grid w-full grid-cols-3 bg-white/5 border border-white/5">
+            <TabsList className="grid w-full grid-cols-4 bg-white/5 border border-white/5">
                 <TabsTrigger value="environment" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">Environment</TabsTrigger>
                 <TabsTrigger value="models" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">Models</TabsTrigger>
+                <TabsTrigger value="github" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">GitHub</TabsTrigger>
                 <TabsTrigger value="appearance" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">Appearance</TabsTrigger>
             </TabsList>
 
@@ -170,6 +172,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
             <TabsContent value="models" className="py-4">
                 <ModelSettings />
+            </TabsContent>
+
+            <TabsContent value="github" className="py-4">
+                <GitHubSettings />
             </TabsContent>
 
             <TabsContent value="appearance" className="py-4">

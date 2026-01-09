@@ -4,6 +4,7 @@ from ollama import AsyncClient
 from config import SCAFFOLD_SYSTEM_PROMPT
 from mcp_server.filesystem import mcp as filesystem_mcp
 from mcp_server.command import mcp as terminal_mcp
+from mcp_server.github import mcp as github_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -13,7 +14,8 @@ class MCPManager:
         """
         fs_tools = await filesystem_mcp.list_tools()
         term_tools = await terminal_mcp.list_tools()
-        all_tools = fs_tools + term_tools
+        gh_tools = await github_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools
         
         tools = []
         for tool in all_tools:
@@ -33,12 +35,17 @@ class MCPManager:
         """
         try:
             # Check filesystem tools first
-            tools = await filesystem_mcp.list_tools()
-            if any(t.name == name for t in tools):
+            fs_tools = await filesystem_mcp.list_tools()
+            if any(t.name == name for t in fs_tools):
                 result = await filesystem_mcp.call_tool(name, arguments)
             else:
-                # Fallback to terminal tools
-                result = await terminal_mcp.call_tool(name, arguments)
+                # Check terminal tools
+                term_tools = await terminal_mcp.list_tools()
+                if any(t.name == name for t in term_tools):
+                    result = await terminal_mcp.call_tool(name, arguments)
+                else:
+                    # Check GitHub tools
+                    result = await github_mcp.call_tool(name, arguments)
             
             # Extract text from the result
             output = []
@@ -90,21 +97,23 @@ def _process_llm_response(response, messages):
                 
                 # Normalize single tool call vs list of calls
                 if isinstance(data, dict):
-                    if 'tool' in data and 'arguments' in data:
+                    tool_name = data.get('tool') or data.get('function') or data.get('name')
+                    if tool_name and 'arguments' in data:
                         log_debug("Found single tool call in JSON")
                         tool_calls.append({
                             'function': {
-                                'name': data['tool'],
+                                'name': tool_name,
                                 'arguments': data['arguments']
                             }
                         })
                 elif isinstance(data, list):
                     log_debug("Found list of tool calls in JSON")
                     for item in data:
-                        if 'tool' in item and 'arguments' in item:
+                        tool_name = item.get('tool') or item.get('function') or item.get('name')
+                        if tool_name and 'arguments' in item:
                             tool_calls.append({
                                 'function': {
-                                    'name': item['tool'],
+                                    'name': tool_name,
                                     'arguments': item['arguments']
                                 }
                             })
@@ -179,13 +188,12 @@ async def chat_with_tools(model: str, messages: list, options: dict = None):
             tool_desc = json.dumps([t['function'] for t in tools], indent=2)
             manual_prompt = (
                 f"\n\nYou have access to the following tools:\n{tool_desc}\n\n"
-                "REQUIRED: To create the project, you MUST respond with a JSON object calling 'scaffold_project'.\n"
+                "To use a tool, you MUST respond with a JSON object.\n"
                 "FORMAT:\n"
                 "{\n"
-                "  \"tool\": \"scaffold_project\",\n"
+                "  \"tool\": \"tool_name\",\n"
                 "  \"arguments\": {\n"
-                "    \"base_path\": \"...\",\n"
-                "    \"file_structure\": { ... }\n"
+                "    \"arg_name\": \"value\"\n"
                 "  }\n"
                 "}\n"
             )

@@ -7,6 +7,51 @@ mcp = FastMCP("LocalDev Filesystem")
 
 
 @mcp.tool()
+def list_files(path: str = ".") -> str:
+    """
+    Lists files and directories in a given path.
+
+    Args:
+        path: The directory path (defaults to current directory).
+    """
+    try:
+        full_path = os.path.abspath(path)
+        if not os.path.exists(full_path):
+            return f"❌ Error: Directory not found at {path}"
+        
+        items = os.listdir(full_path)
+        # Add a trailing slash for directories for clarity
+        formatted_items = []
+        for item in items:
+            if os.path.isdir(os.path.join(full_path, item)):
+                formatted_items.append(f"{item}/")
+            else:
+                formatted_items.append(item)
+                
+        return "\n".join(sorted(formatted_items))
+    except Exception as e:
+        return f"❌ Error listing directory: {str(e)}"
+
+
+@mcp.tool()
+def read_file(path: str) -> str:
+    """
+    Reads content from a file.
+
+    Args:
+        path: The path to the file.
+    """
+    try:
+        full_path = os.path.abspath(path)
+        if not os.path.exists(full_path):
+            return f"❌ Error: File not found at {path}"
+        with open(full_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"❌ Error reading file: {str(e)}"
+
+
+@mcp.tool()
 def write_file(path: str, content: str) -> str:
     """
     Writes content to a single file.

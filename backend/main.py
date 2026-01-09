@@ -139,6 +139,9 @@ class ConfigRequest(BaseModel):
     aws_session_token: str | None = None
     aws_region: str | None = "us-east-1"
 
+class EnvConfigRequest(BaseModel):
+    github_token: str | None = None
+
 class GenerateEmbeddingRequest(BaseModel):
     text: str
 
@@ -205,6 +208,55 @@ async def update_config(request: ConfigRequest):
 @app.get("/config/status")
 async def get_config_status():
     return {"mode": app_state["mode"], "has_keys": app_state["aws_creds"] is not None}
+
+@app.post("/config/env")
+async def update_env_config(request: EnvConfigRequest):
+    try:
+        env_path = os.path.join(os.getcwd(), ".env")
+        
+        # Read existing lines
+        lines = []
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                lines = f.readlines()
+        
+        # Prepare new lines
+        new_lines = []
+        token_updated = False
+        
+        for line in lines:
+            if line.startswith("GITHUB_TOKEN="):
+                if request.github_token:
+                    new_lines.append(f"GITHUB_TOKEN={request.github_token}\n")
+                    token_updated = True
+                else:
+                    # Keep existing if not updating
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+        
+        if not token_updated and request.github_token:
+            new_lines.append(f"GITHUB_TOKEN={request.github_token}\n")
+            
+        # Write back
+        with open(env_path, "w") as f:
+            f.writelines(new_lines)
+            
+        # Reload env vars for current process
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
+            
+        return {"status": "success", "message": "Environment updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/env")
+async def get_env_status():
+    token = os.environ.get("GITHUB_TOKEN")
+    return {
+        "has_github_token": bool(token) and len(token) > 0,
+        # Do not return the actual token for security, just presence
+    }
 
 # --- GIT ENDPOINTS ---
 
