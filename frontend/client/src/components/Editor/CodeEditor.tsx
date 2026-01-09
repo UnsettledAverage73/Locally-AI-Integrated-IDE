@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { Save, BrainCircuit, Sparkles, Loader2, CheckCircle, CloudUpload } from "lucide-react";
+import { Save, BrainCircuit, Sparkles, Loader2, CheckCircle, CloudUpload, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { llm, optimizer } from "@/api/client";
@@ -48,6 +48,7 @@ export default function CodeEditor({
   const monacoRef = useRef<any>(null);
   const completionProviderRef = useRef<any>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Enable Auto-Save
   const saveStatus = useAutoSave(content, filePath || "");
@@ -66,6 +67,40 @@ export default function CodeEditor({
     } finally {
       setIsOptimizing(false);
     }
+  };
+
+  const handleBoilerplate = async () => {
+     if (!editorRef.current) return;
+     const editor = editorRef.current;
+     const selection = editor.getSelection();
+     const selectedText = editor.getModel().getValueInRange(selection);
+     
+     if (!selectedText) {
+         alert("Please select a comment describing what you want to generate.");
+         return;
+     }
+
+     setIsGenerating(true);
+     try {
+         // Use the LLM to generate code based on the selected comment
+         const prompt = `Generate code for the following description. Return ONLY the code, no markdown.
+
+${selectedText}`;
+         const { content } = await llm.complete(prompt, ""); // Using complete instead of chat for raw text
+         
+         // Insert the generated code after the selection
+         const range = selection;
+         const op = {
+             range: range,
+             text: selectedText + "\n" + content,
+             forceMoveMarkers: true
+         };
+         editor.executeEdits("boilerplate", [op]);
+     } catch (e: any) {
+         alert("Generation Failed: " + e.message);
+     } finally {
+         setIsGenerating(false);
+     }
   };
 
   useEffect(() => {
@@ -115,7 +150,7 @@ export default function CodeEditor({
           }
 
           // Wait a bit to see if user keeps typing (debounce)
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 600)); // Increased debounce
           if (token.isCancellationRequested) {
             return { items: [] };
           }
@@ -141,7 +176,7 @@ export default function CodeEditor({
               ],
             };
           } catch (e) {
-            console.error("Ghost text error:", e);
+            // Silently fail for ghost text
             return { items: [] };
           }
         },
@@ -170,6 +205,17 @@ export default function CodeEditor({
             {saveStatus === 'unsaved' && <span className="w-2 h-2 rounded-full bg-yellow-500" title="Unsaved changes" />}
         </div>
         <div className="flex items-center space-x-2">
+            <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleBoilerplate}
+                disabled={isGenerating}
+                className="text-xs h-7 gap-1.5 hover:bg-blue-500/20 hover:text-blue-400 text-blue-400"
+                title="Select a comment and click to generate code"
+            >
+                {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                Generate
+            </Button>
             <Button 
                 variant="ghost" 
                 size="sm" 
