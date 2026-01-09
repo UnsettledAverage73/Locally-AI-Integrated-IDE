@@ -5,6 +5,7 @@ from config import SCAFFOLD_SYSTEM_PROMPT
 from mcp_server.filesystem import mcp as filesystem_mcp
 from mcp_server.command import mcp as terminal_mcp
 from mcp_server.github import mcp as github_mcp
+from mcp_server.search import mcp as search_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -15,7 +16,8 @@ class MCPManager:
         fs_tools = await filesystem_mcp.list_tools()
         term_tools = await terminal_mcp.list_tools()
         gh_tools = await github_mcp.list_tools()
-        all_tools = fs_tools + term_tools + gh_tools
+        search_tools = await search_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools + search_tools
         
         tools = []
         for tool in all_tools:
@@ -45,7 +47,12 @@ class MCPManager:
                     result = await terminal_mcp.call_tool(name, arguments)
                 else:
                     # Check GitHub tools
-                    result = await github_mcp.call_tool(name, arguments)
+                    gh_tools = await github_mcp.list_tools()
+                    if any(t.name == name for t in gh_tools):
+                        result = await github_mcp.call_tool(name, arguments)
+                    else:
+                        # Check Search tools
+                        result = await search_mcp.call_tool(name, arguments)
             
             # Extract text from the result
             output = []
