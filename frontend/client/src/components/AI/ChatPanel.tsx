@@ -71,18 +71,25 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
     return !inline && match ? (
       <div className="relative group my-4 rounded-md overflow-hidden border border-border/50 bg-[#1e1e1e]">
           {/* Code Header / Actions */}
-          <div className="flex items-center justify-between px-3 py-1.5 bg-[#2d2d2d] border-b border-border/50">
-             <span className="text-xs text-muted-foreground font-mono">{match[1]}</span>
+          <div className="flex items-center justify-between px-3 py-1.5 bg-[#252526] border-b border-border/40 select-none group-hover:border-border/60 transition-colors">
+             <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/20" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
+                </div>
+                <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider ml-1">{match[1]}</span>
+             </div>
              {activeFile && (
                  <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="h-6 text-xs gap-1.5 text-green-400 hover:text-green-300 hover:bg-green-400/10"
+                    className="h-5 text-[10px] gap-1 text-green-400 hover:text-green-300 hover:bg-green-400/10 transition-colors px-2"
                     onClick={() => onApplyCode(codeContent)}
                     title={`Apply code to ${activeFile}`}
                  >
-                    <Play className="w-3 h-3" />
-                    Apply Code
+                    <Play className="w-2.5 h-2.5" />
+                    APPLY
                  </Button>
              )}
           </div>
@@ -90,99 +97,136 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
             style={vscDarkPlus}
             language={match[1]}
             PreTag="div"
-            customStyle={{ margin: 0, borderRadius: 0, fontSize: '0.875rem' }}
+            customStyle={{ margin: 0, padding: '1rem', borderRadius: 0, fontSize: '0.85rem', lineHeight: '1.4', backgroundColor: '#1e1e1e' }}
             {...props}
           >
             {codeContent}
           </SyntaxHighlighter>
       </div>
     ) : (
-      <code className={cn("relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm", className)} {...props}>
+      <code className={cn("relative rounded bg-muted/50 px-[0.3rem] py-[0.1rem] font-mono text-sm border border-border/50 text-accent", className)} {...props}>
         {children}
       </code>
     );
   }, [activeFile, onApplyCode]);
 
   return (
-    <div className="h-full flex flex-col bg-card/30 backdrop-blur-md border-l border-border">
+    <div className="h-full flex flex-col bg-card/40 backdrop-blur-xl border-l border-border/50 shadow-2xl relative z-10">
       {/* Header */}
-      <div className="h-10 px-4 flex items-center justify-between border-b border-border bg-card/50">
-        <div className="flex items-center">
-          <Sparkles className="w-4 h-4 text-accent mr-2" />
-          <span className="text-sm font-display font-bold tracking-wider text-foreground">AI ASSISTANT</span>
+      <div className="h-10 px-3 flex items-center justify-between border-b border-border/50 bg-background/20 select-none">
+        <div className="flex items-center gap-2">
+          <div className="p-1 rounded bg-accent/10">
+            <Sparkles className="w-3.5 h-3.5 text-accent" />
+          </div>
+          <span className="text-xs font-medium tracking-wide text-foreground/90">AI ASSISTANT</span>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleClearIndex} title="Clear AI Index and Chat">
-          <Eraser className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+        <Button variant="ghost" size="icon" onClick={handleClearIndex} title="Clear AI Index and Chat" className="h-7 w-7 hover:bg-red-500/10 hover:text-red-400 transition-colors">
+          <Eraser className="w-3.5 h-3.5" />
         </Button>
       </div>
 
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+        className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth"
       >
         {messages.length === 0 && hasCheckedOllama && (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50 space-y-2">
-                <Bot className="w-8 h-8" />
+            <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col items-center justify-center h-full text-muted-foreground/80 space-y-4"
+            >
+                <div className="relative">
+                    <Bot className="w-12 h-12 opacity-80 text-accent" />
+                    {ollamaAvailable && (
+                        <span className="absolute -bottom-1 -right-1 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                    )}
+                </div>
+                
                 {ollamaAvailable ? (
-                    <div className="text-sm text-center max-w-[200px]">
-                        <p>Ollama Connected. Available models:</p>
-                        <p className="font-mono text-xs">{ollamaModels.join(", ") || "None"}</p>
-                        <p className="mt-2">Ready to assist with your code. Open a file to provide context.</p>
+                    <div className="text-center max-w-[240px] space-y-2">
+                        <h3 className="font-semibold text-foreground">System Online</h3>
+                        <div className="bg-background/40 border border-border/50 rounded-lg p-3 text-xs font-mono text-left space-y-1">
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Model:</span>
+                                <span className="text-accent">{ollamaModels[0] || "deepseek-coder"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Status:</span>
+                                <span className="text-green-500">Ready</span>
+                            </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Ask questions or select code to generate snippets.</p>
                     </div>
                 ) : (
-                    <div className="text-sm text-center max-w-[300px]">
-                        <p className="font-bold text-base text-foreground">Ollama Not Running</p>
-                        <p className="mt-2 mb-4">To enable AI features, please install and run Ollama:</p>
-                        <div className="text-left text-xs space-y-2">
-                            <p>1. Install Ollama: <a href="https://ollama.ai/download" target="_blank" rel="noopener noreferrer" className="text-accent underline">ollama.ai/download</a></p>
-                            <p>2. Start Ollama server: <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">ollama serve</code></p>
-                            <p>3. Download DeepSeek Coder: <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">ollama run deepseek-coder</code></p>
-                            <p>4. Download Nomic Embed Text: <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">ollama run nomic-embed-text</code></p>
+                    <div className="text-center max-w-[300px] bg-red-500/5 border border-red-500/20 rounded-xl p-4">
+                        <h3 className="font-semibold text-red-500 flex items-center justify-center gap-2 mb-2">
+                            <AlertTriangle className="w-4 h-4" />
+                            Ollama Not Found
+                        </h3>
+                        <p className="text-xs mb-3">AI features require a local Ollama instance.</p>
+                        <div className="text-left text-[10px] space-y-2 bg-background/50 p-2 rounded border border-border/30 font-mono">
+                            <p className="flex gap-2"><span>1.</span> <span className="opacity-80">Install ollama.ai</span></p>
+                            <p className="flex gap-2"><span>2.</span> <span className="text-accent">ollama serve</span></p>
+                            <p className="flex gap-2"><span>3.</span> <span className="text-accent">ollama run deepseek-coder</span></p>
                         </div>
-                        <p className="mt-4">Once installed and running, refresh this page.</p>
                     </div>
                 )}
-            </div>
+            </motion.div>
         )}
 
         {messages.map((msg, i) => {
-            // 1. Permission Request Card (Rendered as a separate message block)
+            // 1. Permission Request Card
             if (msg.type === 'permission_request' && msg.tool_calls && msg.tool_calls.length > 0) {
                 return (
                     <motion.div 
                         key={i}
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="w-full bg-card border border-yellow-500/50 rounded-lg p-4 shadow-md my-2"
+                        className="w-full bg-[#1e1e1e] border border-yellow-500/30 rounded-lg p-0 shadow-lg my-4 overflow-hidden"
                     >
-                        <div className="flex items-center gap-2 mb-3 text-yellow-500">
-                            <AlertTriangle className="w-5 h-5" />
-                            <span className="font-bold text-sm">Action Required</span>
+                        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20">
+                            <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                            <span className="font-semibold text-xs text-yellow-500 uppercase tracking-wide">Permission Required</span>
                         </div>
                         
                         {msg.tool_calls.map((tool, tIdx) => (
-                            <div key={tIdx} className="mb-4 text-sm">
-                                <p className="text-muted-foreground mb-1">AI wants to execute:</p>
-                                <div className="bg-muted/50 p-2 rounded border border-border font-mono text-xs overflow-x-auto">
-                                    <span className="text-accent font-bold">{tool.function.name}</span>
-                                    <pre className="mt-1 text-foreground/80">{JSON.stringify(tool.function.arguments, null, 2)}</pre>
+                            <div key={tIdx} className="p-4">
+                                <div className="flex items-start gap-3 mb-3">
+                                    <div className="p-2 bg-background/50 rounded border border-border/50">
+                                        <Bot className="w-5 h-5 text-accent" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-foreground">I want to execute a command</p>
+                                        <p className="text-xs text-muted-foreground">This action will modify your system or files.</p>
+                                    </div>
                                 </div>
-                                <div className="flex gap-2 mt-3">
+
+                                <div className="bg-black/30 p-3 rounded-md border border-border/40 font-mono text-xs overflow-x-auto mb-4">
+                                    <div className="flex items-center gap-2 mb-1.5 opacity-70 border-b border-border/20 pb-1">
+                                        <span className="text-accent font-bold">{tool.function.name}</span>
+                                    </div>
+                                    <pre className="text-gray-300 whitespace-pre-wrap">{JSON.stringify(tool.function.arguments, null, 2)}</pre>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
                                     <Button 
                                         size="sm" 
                                         onClick={() => onToolAction(tool, true)}
-                                        className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                                        className="bg-green-600 hover:bg-green-700 text-white border-none shadow-none text-xs"
                                     >
-                                        <Check className="w-4 h-4" /> Allow
+                                        <Check className="w-3.5 h-3.5 mr-1.5" /> Approve
                                     </Button>
                                     <Button 
                                         size="sm" 
                                         variant="outline"
                                         onClick={() => onToolAction(tool, false)}
-                                        className="border-red-500/50 text-red-500 hover:bg-red-500/10 gap-1"
+                                        className="bg-transparent border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 text-xs"
                                     >
-                                        <X className="w-4 h-4" /> Deny
+                                        <X className="w-3.5 h-3.5 mr-1.5" /> Deny
                                     </Button>
                                 </div>
                             </div>
@@ -198,25 +242,33 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className={cn(
-                        "flex w-full flex-col gap-2",
+                        "flex w-full flex-col gap-1",
                         msg.role === "user" ? "items-end" : "items-start"
                     )}
                 >
                     <div className={cn(
-                        "flex max-w-[85%] rounded-lg p-3 text-sm shadow-sm",
-                        msg.role === "user" 
-                            ? "bg-primary/10 text-primary-foreground border border-primary/20 rounded-tr-none" 
-                            : "bg-card text-card-foreground border border-border rounded-tl-none"
+                        "flex items-center gap-2 mb-1 px-1",
+                        msg.role === "user" ? "flex-row-reverse" : "flex-row"
                     )}>
-                        <div className="mr-3 mt-0.5 shrink-0 opacity-70">
-                            {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                        </div>
-                        <div className="leading-relaxed prose prose-invert max-w-none break-words overflow-hidden">
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground opacity-70">
+                            {msg.role === "user" ? "You" : "Assistant"}
+                        </span>
+                    </div>
+
+                    <div className={cn(
+                        "flex max-w-[90%] rounded-2xl p-3.5 text-sm shadow-sm relative group",
+                        msg.role === "user" 
+                            ? "bg-accent/10 text-foreground border border-accent/20 rounded-tr-sm" 
+                            : "bg-muted/40 text-foreground border border-border/40 rounded-tl-sm backdrop-blur-sm"
+                    )}>
+                        <div className="leading-relaxed prose prose-invert prose-p:my-1 prose-pre:my-2 prose-code:bg-black/20 prose-code:rounded prose-code:px-1 max-w-none break-words overflow-hidden w-full">
                             <ReactMarkdown 
                                 remarkPlugins={[remarkGfm]} 
                                 components={{
                                     code: CodeBlock, 
-                                    a: ({ node, ...props }) => <a {...props} className="text-accent underline" target="_blank" rel="noopener noreferrer" />
+                                    a: ({ node, ...props }) => <a {...props} className="text-accent underline hover:text-accent/80 transition-colors" target="_blank" rel="noopener noreferrer" />,
+                                    ul: ({ node, ...props }) => <ul {...props} className="list-disc pl-4 space-y-1" />,
+                                    ol: ({ node, ...props }) => <ol {...props} className="list-decimal pl-4 space-y-1" />
                                 }}
                             >
                                 {msg.content}
@@ -231,14 +283,19 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
             <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex justify-start w-full"
+                className="flex justify-start w-full px-1"
             >
-                <div className="bg-card border border-border rounded-lg rounded-tl-none p-4 flex items-center space-x-2">
-                    <Bot className="w-4 h-4 opacity-70 mr-2" />
-                    <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                        <div className="w-2 h-2 bg-accent rounded-full animate-bounce"></div>
+                <div className="bg-muted/40 border border-border/40 rounded-2xl rounded-tl-sm p-4 flex items-center space-x-3 shadow-sm">
+                    <div className="relative">
+                         <Bot className="w-4 h-4 text-accent" />
+                         <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                        </span>
+                    </div>
+                    <div className="flex space-x-1.5">
+                        <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0 }} className="w-1.5 h-1.5 bg-foreground/40 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-foreground/40 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-foreground/40 rounded-full" />
                     </div>
                 </div>
             </motion.div>
@@ -246,29 +303,37 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-border bg-card/50">
+      <div className="p-3 border-t border-border/50 bg-background/30 backdrop-blur-md">
         {activeFile && (
-            <div className="mb-2 text-xs text-muted-foreground flex items-center">
+            <div className="mb-2 text-[10px] text-muted-foreground flex items-center bg-accent/5 w-fit px-2 py-0.5 rounded-full border border-accent/10">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2 animate-pulse" />
-                Context: {activeFile.split('/').pop()}
+                <span className="opacity-70">Context:</span> 
+                <span className="ml-1 font-mono text-foreground/80">{activeFile.split('/').pop()}</span>
             </div>
         )}
-        <form onSubmit={handleSubmit} className="flex gap-2">
+        <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-muted/30 border border-border/50 rounded-xl p-1.5 focus-within:ring-1 focus-within:ring-accent/50 focus-within:border-accent/50 transition-all shadow-sm">
           <Input 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             placeholder="Ask AI about your code..." 
-            className="flex-1 bg-background/50 border-input focus:ring-accent/50 font-sans"
+            className="flex-1 bg-transparent border-none focus-visible:ring-0 text-sm h-auto min-h-[40px] py-2.5 px-3 resize-none"
+            autoComplete="off"
           />
           <Button 
             type="submit" 
             size="icon" 
             disabled={isLoading || !input.trim()}
-            className="bg-accent text-accent-foreground hover:bg-accent/90"
+            className={cn(
+                "h-9 w-9 shrink-0 transition-all",
+                input.trim() ? "bg-accent text-accent-foreground hover:bg-accent/90" : "bg-muted text-muted-foreground"
+            )}
           >
             <Send className="w-4 h-4" />
           </Button>
         </form>
+        <div className="text-[10px] text-center mt-2 text-muted-foreground/40 select-none">
+            AI can make mistakes. Review generated code.
+        </div>
       </div>
     </div>
   );

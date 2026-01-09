@@ -24,6 +24,7 @@ import { DownloadWidget } from "@/components/DownloadWidget";
 import { motion } from "framer-motion";
 import Header from "@/components/Layout/Header";
 import StatusBar from "@/components/Layout/StatusBar";
+import { CommandPalette } from "@/components/CommandPalette/CommandPalette";
 
 interface OpenFile {
   path: string;
@@ -639,6 +640,14 @@ function App() {
          <Toaster />
          <DownloadWidget />
          <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+         <CommandPalette 
+            onOpenFiles={handleOpenFiles}
+            onOpenFolder={handleOpenFolder}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onToggleTerminal={() => {}} // Terminal toggling logic if needed
+            onOpenSearch={() => setActiveView('search')}
+            onOpenFileManager={handleOpenFileManager}
+         />
       </motion.div>
     </DownloadProvider>
   );
