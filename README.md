@@ -1,10 +1,10 @@
-# 🚀 LocalDev - The Privacy-First AI IDE 🔒
+# 🚀 Average - The Privacy-First AI IDE 🔒
 
 ![LocalDev Screenshot](images/Screenshot%20from%202026-01-12%2019-36-20.png)
 
 ## 🌟 Overview
 
-**LocalDev** is a revolutionary **offline-capable** and **privacy-first** Integrated Development Environment (IDE). It brings the power of Large Language Models (LLMs) directly to your local machine, ensuring that **not a single byte of your code leaves your computer**.
+**Average IDE** is a revolutionary **offline-capable** and **privacy-first** Integrated Development Environment (IDE). It brings the power of Large Language Models (LLMs) directly to your local machine, ensuring that **not a single byte of your code leaves your computer**.
 
 Built for developers who value security, speed, and autonomy, LocalDev indexes your project locally using a vector database to provide context-aware AI assistance—completely offline.
 
