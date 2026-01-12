@@ -6,7 +6,7 @@
 
 All functional requirements from the PRD have been implemented with the new frontend/backend architecture, although some parts (like terminal integration) are currently mocks, planned for future enhancements. The project structure has been successfully refactored.
 
-#### FR-01: Editor Core ✓
+#### FR-01: Editor Core ✓ww
 - Monaco Editor integrated with React
 - Syntax highlighting for Python, JavaScript, TypeScript, C++, HTML, CSS, JSON
 - Dark theme (VS Code dark)

@@ -75,29 +75,31 @@ export default function SystemHealth() {
             {loading && !stats && <p className="text-muted-foreground">Loading stats...</p>}
             {error && <p className="text-destructive">{error}</p>}
             {stats && (
-            <div className="grid gap-4 md:grid-cols-2">
-                <StatCard
-                title="Total Requests"
-                value={stats.total_requests}
-                icon={<BarChart className="h-4 w-4 text-muted-foreground" />}
-                />
-                <StatCard
-                title="Avg Latency"
-                value={`${stats.avg_latency.toFixed(0)}`}
-                unit="ms"
-                icon={<Zap className="h-4 w-4 text-muted-foreground" />}
-                />
-                <StatCard
-                title="Error Rate"
-                value={`${stats.error_rate.toFixed(2)}`}
-                unit="%"
-                icon={<AlertTriangle className="h-4 w-4 text-muted-foreground" />}
-                />
-                <StatCard
-                title="Est. Cost Saved"
-                value={`$${stats.estimated_cost_saved.toFixed(2)}`}
-                icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
-                />
+            <div className="@container">
+              <div className="grid gap-4 grid-cols-1 @[400px]:grid-cols-2">
+                  <StatCard
+                  title="Total Requests"
+                  value={stats.total_requests}
+                  icon={<BarChart className="h-4 w-4 text-muted-foreground" />}
+                  />
+                  <StatCard
+                  title="Avg Latency"
+                  value={`${stats.avg_latency.toFixed(0)}`}
+                  unit="ms"
+                  icon={<Zap className="h-4 w-4 text-muted-foreground" />}
+                  />
+                  <StatCard
+                  title="Error Rate"
+                  value={`${stats.error_rate.toFixed(2)}`}
+                  unit="%"
+                  icon={<AlertTriangle className="h-4 w-4 text-muted-foreground" />}
+                  />
+                  <StatCard
+                  title="Est. Cost Saved"
+                  value={`$${stats.estimated_cost_saved.toFixed(2)}`}
+                  icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
+                  />
+              </div>
             </div>
             )}
         </section>

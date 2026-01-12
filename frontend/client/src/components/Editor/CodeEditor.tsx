@@ -1,12 +1,11 @@
 import React, { useRef, useEffect, useState } from "react";
-import Editor, { OnMount } from "@monaco-editor/react";
-import { Save, BrainCircuit, Sparkles, Loader2, CheckCircle, CloudUpload, Play } from "lucide-react";
+import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
+import { Save, BrainCircuit, Sparkles, Loader2, CheckCircle, Play, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { llm, optimizer } from "@/api/client";
 import { useAutoSave } from "../../hooks/useAutoSave";
-import { createLanguageClient } from "@/lib/language-client";
-import { MonacoLanguageClient } from 'monaco-languageclient';
 
 const getLanguage = (filePath: string) => {
   if (!filePath) return "typescript";
@@ -45,10 +44,20 @@ export default function CodeEditor({
   isIndexing,
 }: CodeEditorProps) {
   const editorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
+  const [monacoInstance, setMonacoInstance] = useState<any>(null);
   const completionProviderRef = useRef<any>(null);
+  
+  // UI States
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Inline Edit / Diff States
+  const [isInputVisible, setIsInputVisible] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  const [isDiffView, setIsDiffView] = useState(false);
+  const [diffOriginal, setDiffOriginal] = useState("");
+  const [diffModified, setDiffModified] = useState("");
+  const [selectionRange, setSelectionRange] = useState<any>(null);
 
   // Enable Auto-Save
   const saveStatus = useAutoSave(content, filePath || "");
@@ -82,16 +91,11 @@ export default function CodeEditor({
 
      setIsGenerating(true);
      try {
-         // Use the LLM to generate code based on the selected comment
-         const prompt = `Generate code for the following description. Return ONLY the code, no markdown.
-
-${selectedText}`;
-         const { content } = await llm.complete(prompt, ""); // Using complete instead of chat for raw text
+         const prompt = `Generate code for the following description. Return ONLY the code, no markdown.\n\n${selectedText}`;
+         const { content } = await llm.complete(prompt, "");
          
-         // Insert the generated code after the selection
-         const range = selection;
          const op = {
-             range: range,
+             range: selection,
              text: selectedText + "\n" + content,
              forceMoveMarkers: true
          };
@@ -103,88 +107,188 @@ ${selectedText}`;
      }
   };
 
-  useEffect(() => {
-    return () => {
-      if (completionProviderRef.current) {
-        completionProviderRef.current.dispose();
+  // --- Inline Edit Logic ---
+
+  const handleCmdK = () => {
+      if (!editorRef.current) return;
+      const editor = editorRef.current;
+      const selection = editor.getSelection();
+      
+      setSelectionRange(selection);
+      setIsInputVisible(true);
+      // Defer focus to input
+      setTimeout(() => document.getElementById("inline-edit-input")?.focus(), 50);
+  };
+
+  const submitEdit = async () => {
+      if (!editorRef.current || !filePath || !instruction.trim() || !selectionRange) return;
+      
+      const editor = editorRef.current;
+      const model = editor.getModel();
+      if (!model) return;
+
+      const selectedText = model.getValueInRange(selectionRange);
+      
+      setIsGenerating(true);
+      setIsInputVisible(false); // Hide input while processing
+
+      try {
+          const { modified_code } = await optimizer.editSelection(filePath, selectedText, instruction);
+          
+          // Check if editor is still mounted/valid
+          if (!editorRef.current) {
+              // If unmounted during await, abort
+              return;
+          }
+
+          const fullContent = model.getValue();
+          setDiffOriginal(fullContent);
+          
+          const startOffset = model.getOffsetAt({ lineNumber: selectionRange.startLineNumber, column: selectionRange.startColumn });
+          const endOffset = model.getOffsetAt({ lineNumber: selectionRange.endLineNumber, column: selectionRange.endColumn });
+          
+          const newContent = fullContent.substring(0, startOffset) + (modified_code || "") + fullContent.substring(endOffset);
+          
+          setDiffModified(newContent);
+          setIsDiffView(true);
+          
+      } catch (e: any) {
+          alert("Edit Failed: " + e.message);
+          setIsInputVisible(true); // Show input again on error
+      } finally {
+          setIsGenerating(false);
+          setInstruction("");
       }
-    };
-  }, []);
+  };
+
+  const acceptDiff = () => {
+      if (typeof diffModified === 'string') {
+          onChange(diffModified);
+      }
+      setIsDiffView(false);
+      setDiffOriginal("");
+      setDiffModified("");
+      // Force focus back to editor after a short delay to ensure mount
+      setTimeout(() => {
+          if (editorRef.current) editorRef.current.focus();
+      }, 100);
+  };
+
+  const rejectDiff = () => {
+      setIsDiffView(false);
+      setDiffOriginal("");
+      setDiffModified("");
+      setTimeout(() => {
+          if (editorRef.current) editorRef.current.focus();
+      }, 100);
+  };
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
-    monacoRef.current = monaco;
+    if (monacoInstance !== monaco) {
+        setMonacoInstance(monaco);
+    }
     
-    // Add keybinding for Ctrl+S
+    // Add keybindings
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       onSave();
     });
 
-    // Register Ghost Text Provider
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
+        handleCmdK();
+    });
+  };
+
+  // Cleanup ref on unmount
+  useEffect(() => {
+      return () => {
+          editorRef.current = null;
+      };
+  }, []);
+
+  // Manage Inline Completion Provider Lifecycle
+  useEffect(() => {
+    if (!monacoInstance || isDiffView) return;
+
+    // Dispose previous if any
     if (completionProviderRef.current) {
-        completionProviderRef.current.dispose();
+        try {
+            completionProviderRef.current.dispose();
+        } catch (e) {
+            console.warn("Failed to dispose completion provider", e);
+        }
     }
 
-    completionProviderRef.current = monaco.languages.registerInlineCompletionsProvider(
-      { pattern: "**/*" },
-      {
-        provideInlineCompletions: async (model: any, position: any, context: any, token: any) => {
-          // Get text before and after cursor
-          const prefix = model.getValueInRange({
-            startLineNumber: 1,
-            startColumn: 1,
-            endLineNumber: position.lineNumber,
-            endColumn: position.column,
-          });
-
-          const suffix = model.getValueInRange({
-            startLineNumber: position.lineNumber,
-            startColumn: position.column,
-            endLineNumber: model.getLineCount(),
-            endColumn: model.getLineMaxColumn(model.getLineCount()),
-          });
-
-          // Only trigger if we have some context
-          if (prefix.trim().length < 5) {
-            return { items: [] };
-          }
-
-          // Wait a bit to see if user keeps typing (debounce)
-          await new Promise(resolve => setTimeout(resolve, 600)); // Increased debounce
-          if (token.isCancellationRequested) {
-            return { items: [] };
-          }
-
-          try {
-            const { content } = await llm.complete(prefix, suffix);
+    try {
+        // Register new provider
+        const provider = monacoInstance.languages.registerInlineCompletionsProvider(
+        { pattern: "**/*" },
+        {
+            provideInlineCompletions: async (model: any, position: any, context: any, token: any) => {
+            // Check if model is disposed
+            if (!model || model.isDisposed()) return { items: [] };
             
-            if (token.isCancellationRequested || !content) {
-              return { items: [] };
-            }
+            // Check if editor ref is valid
+            if (!editorRef.current) return { items: [] };
 
-            return {
-              items: [
-                {
-                  insertText: content,
-                  range: {
-                    startLineNumber: position.lineNumber,
-                    startColumn: position.column,
-                    endLineNumber: position.lineNumber,
-                    endColumn: position.column,
-                  },
-                },
-              ],
-            };
-          } catch (e) {
-            // Silently fail for ghost text
-            return { items: [] };
-          }
-        },
-        freeInlineCompletions: () => {},
-        disposeInlineCompletions: () => {},
-      }
-    );
-  };
+            const prefix = model.getValueInRange({
+                startLineNumber: 1,
+                startColumn: 1,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column,
+            });
+
+            const suffix = model.getValueInRange({
+                startLineNumber: position.lineNumber,
+                startColumn: position.column,
+                endLineNumber: model.getLineCount(),
+                endColumn: model.getLineMaxColumn(model.getLineCount()),
+            });
+
+            if (prefix.trim().length < 5) return { items: [] };
+
+            await new Promise(resolve => setTimeout(resolve, 600)); 
+            if (token.isCancellationRequested) return { items: [] };
+
+            try {
+                const { content } = await llm.complete(prefix, suffix);
+                if (token.isCancellationRequested || !content) return { items: [] };
+
+                return {
+                items: [{
+                    insertText: content,
+                    range: {
+                        startLineNumber: position.lineNumber,
+                        startColumn: position.column,
+                        endLineNumber: position.lineNumber,
+                        endColumn: position.column,
+                    },
+                }],
+                };
+            } catch (e) {
+                return { items: [] };
+            }
+            },
+            freeInlineCompletions: () => {},
+            disposeInlineCompletions: () => {},
+        }
+        );
+        
+        completionProviderRef.current = provider;
+    } catch (e) {
+        console.error("Failed to register inline completions", e);
+    }
+
+    return () => {
+        if (completionProviderRef.current) {
+            try {
+                completionProviderRef.current.dispose();
+            } catch (e) {
+                // ignore disposal errors on unmount
+            }
+        }
+    };
+  }, [monacoInstance, isDiffView, filePath]); // Added filePath dependency to re-register on file change safely
 
   if (!filePath) {
     return (
@@ -205,17 +309,43 @@ ${selectedText}`;
             {saveStatus === 'unsaved' && <span className="w-2 h-2 rounded-full bg-yellow-500" title="Unsaved changes" />}
         </div>
         <div className="flex items-center space-x-2">
-            <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={handleBoilerplate}
-                disabled={isGenerating}
-                className="text-xs h-7 gap-1.5 hover:bg-blue-500/20 hover:text-blue-400 text-blue-400"
-                title="Select a comment and click to generate code"
-            >
-                {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                Generate
-            </Button>
+            {!isDiffView && (
+                <>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={handleBoilerplate}
+                        disabled={isGenerating}
+                        className="text-xs h-7 gap-1.5 hover:bg-blue-500/20 hover:text-blue-400 text-blue-400"
+                        title="Select a comment and click to generate code"
+                    >
+                        {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                        Generate
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={handleCmdK}
+                        className="text-xs h-7 gap-1.5 hover:bg-yellow-500/20 hover:text-yellow-400 text-yellow-400"
+                    >
+                        <span className="text-[10px] border border-current px-1 rounded">⌘K</span>
+                        Edit
+                    </Button>
+                </>
+            )}
+            
+            {/* Diff Actions */}
+            {isDiffView && (
+                <div className="flex items-center gap-2 bg-background/50 rounded-md p-0.5 border border-border/50">
+                     <Button size="sm" onClick={acceptDiff} className="h-6 text-xs bg-green-600 hover:bg-green-700 text-white gap-1">
+                        <Check className="w-3 h-3" /> Accept
+                     </Button>
+                     <Button size="sm" variant="ghost" onClick={rejectDiff} className="h-6 text-xs hover:bg-red-500/20 hover:text-red-400 gap-1">
+                        <X className="w-3 h-3" /> Reject
+                     </Button>
+                </div>
+            )}
+
             <Button 
                 variant="ghost" 
                 size="sm" 
@@ -225,19 +355,6 @@ ${selectedText}`;
             >
                 {isOptimizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                 Auto-Fix
-            </Button>
-            <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={onIndex}
-                disabled={isIndexing}
-                className={cn(
-                    "text-xs h-7 gap-1.5 transition-all hover:bg-primary/20 hover:text-primary", 
-                    isIndexing && "animate-pulse"
-                )}
-            >
-                <BrainCircuit className="w-3.5 h-3.5" />
-                {isIndexing ? "Indexing..." : "Add to Context"}
             </Button>
             
             <div className="flex items-center text-xs text-muted-foreground gap-2">
@@ -255,36 +372,74 @@ ${selectedText}`;
         </div>
       </div>
 
+      {/* Inline Input Widget */}
+      {isInputVisible && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 w-[400px] bg-card border border-border shadow-2xl rounded-lg p-2 flex gap-2 animate-in fade-in slide-in-from-top-5">
+              <Input 
+                 id="inline-edit-input"
+                 value={instruction}
+                 onChange={e => setInstruction(e.target.value)}
+                 onKeyDown={e => {
+                     if (e.key === 'Enter') submitEdit();
+                     if (e.key === 'Escape') setIsInputVisible(false);
+                 }}
+                 placeholder="Describe your change (e.g. 'Use async/await')..."
+                 className="h-8 text-sm bg-background/50"
+                 autoComplete="off"
+              />
+              <Button size="sm" className="h-8" onClick={submitEdit} disabled={isGenerating}>
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Edit"}
+              </Button>
+          </div>
+      )}
+
       {/* Editor Area */}
       <div className="flex-1 relative overflow-hidden">
-        <Editor
-          height="100%"
-          language={getLanguage(filePath)}
-          theme="vs-dark"
-          path={filePath} // This helps Monaco reset state when file changes
-          value={content}
-          onChange={onChange}
-          onMount={handleEditorDidMount}
-          options={{
-            minimap: { enabled: true },
-            fontSize: 14,
-            fontFamily: "'JetBrains Mono', monospace",
-            fontLigatures: true,
-            scrollBeyondLastLine: false,
-            smoothScrolling: true,
-            cursorBlinking: "smooth",
-            cursorSmoothCaretAnimation: "on",
-            padding: { top: 16 },
-            automaticLayout: true,
-            inlineSuggest: {
-              enabled: true,
-              mode: "prefix",
-            },
-            suggest: {
-                preview: true,
-            }
-          }}
-        />
+        {isDiffView ? (
+             <DiffEditor
+                height="100%"
+                language={getLanguage(filePath)}
+                theme="vs-dark"
+                original={diffOriginal}
+                modified={diffModified}
+                options={{
+                    renderSideBySide: true,
+                    fontSize: 14,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    scrollBeyondLastLine: false,
+                    minimap: { enabled: false }
+                }}
+             />
+        ) : (
+            <Editor
+            height="100%"
+            language={getLanguage(filePath)}
+            theme="vs-dark"
+            path={filePath} // This helps Monaco reset state when file changes
+            value={content}
+            onChange={onChange}
+            onMount={handleEditorDidMount}
+            options={{
+                minimap: { enabled: true },
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', monospace",
+                fontLigatures: true,
+                scrollBeyondLastLine: false,
+                smoothScrolling: true,
+                cursorBlinking: "smooth",
+                cursorSmoothCaretAnimation: "on",
+                padding: { top: 16 },
+                automaticLayout: true,
+                inlineSuggest: {
+                enabled: true,
+                mode: "prefix",
+                },
+                suggest: {
+                    preview: true,
+                }
+            }}
+            />
+        )}
       </div>
     </div>
   );

@@ -95,6 +95,10 @@ export const rag = {
     const { data } = await apiClient.post("/rag/index", { file_path, content });
     return data;
   },
+  indexDirectory: async (path: string): Promise<{ status: string }> => {
+    const { data } = await apiClient.post("/rag/index-directory", { path });
+    return data;
+  },
   getContext: async (query: string, current_file: string | null = null): Promise<{ context: string }> => {
     const { data } = await apiClient.post("/rag/context", { query, current_file });
     return data;
@@ -279,6 +283,11 @@ export const optimizer = {
             };
         }
         const { data } = await apiClient.post("/optimizer/propose-fix", { file_path: filePath, line_number: lineNumber, error_message: errorMessage });
+        return data;
+    },
+    editSelection: async (filePath: string, selectedCode: string, instruction: string): Promise<{ modified_code: string }> => {
+        const model = localStorage.getItem("ai_model") || "deepseek-coder";
+        const { data } = await apiClient.post("/fs/edit_selection", { file_path: filePath, selected_code: selectedCode, instruction, model });
         return data;
     }
 };

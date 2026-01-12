@@ -6,6 +6,7 @@ from mcp_server.filesystem import mcp as filesystem_mcp
 from mcp_server.command import mcp as terminal_mcp
 from mcp_server.github import mcp as github_mcp
 from mcp_server.search import mcp as search_mcp
+from mcp_server.browser import mcp as browser_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -17,7 +18,8 @@ class MCPManager:
         term_tools = await terminal_mcp.list_tools()
         gh_tools = await github_mcp.list_tools()
         search_tools = await search_mcp.list_tools()
-        all_tools = fs_tools + term_tools + gh_tools + search_tools
+        browser_tools = await browser_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools
         
         tools = []
         for tool in all_tools:
@@ -51,8 +53,13 @@ class MCPManager:
                     if any(t.name == name for t in gh_tools):
                         result = await github_mcp.call_tool(name, arguments)
                     else:
-                        # Check Search tools
-                        result = await search_mcp.call_tool(name, arguments)
+                        # Check Browser tools
+                        browser_tools = await browser_mcp.list_tools()
+                        if any(t.name == name for t in browser_tools):
+                            result = await browser_mcp.call_tool(name, arguments)
+                        else:
+                            # Check Search tools
+                            result = await search_mcp.call_tool(name, arguments)
             
             # Extract text from the result
             output = []
@@ -130,7 +137,17 @@ def _process_llm_response(response, messages):
         except Exception as e:
             log_debug(f"Error parsing manual JSON tool call: {e}")
 
-    messages.append(response['message'])
+    # CLEANUP: If we found tool calls and the content is primarily just the JSON,
+    # we should hide it from the user to avoid cluttering the chat.
+    if tool_calls:
+        # Check if content is mostly just the JSON block
+        clean_msg = msg_content.strip()
+        if clean_msg.startswith("{") or clean_msg.startswith("```json"):
+            # It's a pure tool call, let's give it a nicer placeholder content
+            # The UI will show the tool call card anyway.
+            msg_content = "I'll use a tool to help with that."
+
+    messages.append({'role': 'assistant', 'content': msg_content})
     
     # Check for recursion/loop (STOP condition)
     if tool_calls:
@@ -269,12 +286,26 @@ async def execute_tool_and_continue(model: str, messages: list, tool_call: dict,
 async def _process_llm_stream(stream, messages):
     full_content = ""
     tool_calls = []
+    is_json_likely = False
+    buffer = ""
     
     async for chunk in stream:
         content_delta = chunk['message'].get('content', '')
         if content_delta:
             full_content += content_delta
-            yield {"type": "content_delta", "content": content_delta}
+            
+            # HEURISTIC: If the first characters look like JSON, stop yielding deltas
+            # and buffer them. If it turns out NOT to be a tool call, we'll yield the buffer.
+            if not is_json_likely and len(full_content) < 10:
+                stripped = full_content.strip()
+                if stripped.startswith("{") or stripped.startswith("```json") or stripped.startswith("```"):
+                    is_json_likely = True
+                    log_debug("Message starts with JSON-like marker. Buffering deltas...")
+            
+            if is_json_likely:
+                buffer += content_delta
+            else:
+                yield {"type": "content_delta", "content": content_delta}
 
         tool_deltas = chunk['message'].get('tool_calls')
         if tool_deltas:
@@ -290,19 +321,65 @@ async def _process_llm_stream(stream, messages):
         if chunk.get('done'):
             break
             
-    messages.append({'role': 'assistant', 'content': full_content, 'tool_calls': tool_calls})
+    # POST-STREAM PROCESSING
+    # If we buffered JSON and it turned out to NOT have native tool calls, 
+    # check if we can parse it as a manual tool call.
+    manual_tool_calls = []
+    if not tool_calls:
+        try:
+            clean_content = full_content.strip()
+            if clean_content.startswith("```json"):
+                clean_content = clean_content[7:-3].strip()
+            elif clean_content.startswith("```"):
+                clean_content = clean_content[3:-3].strip()
+            
+            if clean_content.startswith("{") or clean_content.startswith("["):
+                data = json.loads(clean_content)
+                if isinstance(data, dict):
+                    tool_name = data.get('tool') or data.get('function') or data.get('name')
+                    if tool_name and 'arguments' in data:
+                        manual_tool_calls.append({
+                            'function': {
+                                'name': tool_name,
+                                'arguments': data['arguments']
+                            }
+                        })
+                elif isinstance(data, list):
+                    for item in data:
+                        tool_name = item.get('tool') or item.get('function') or item.get('name')
+                        if tool_name and 'arguments' in item:
+                            manual_tool_calls.append({
+                                'function': {
+                                    'name': tool_name,
+                                    'arguments': item['arguments']
+                                }
+                            })
+        except:
+            pass
 
-    if tool_calls:
-        log_debug(f"🛑 Streamed tool calls detected: {len(tool_calls)}. Requesting approval.")
+    final_tool_calls = tool_calls or manual_tool_calls
+    display_content = full_content
+
+    if final_tool_calls:
+        # It's a tool call! Use a placeholder and suppress the buffer
+        display_content = "I'll use a tool to help with that."
+    elif is_json_likely:
+        # Not a tool call, but we buffered it. Yield the whole buffer now.
+        yield {"type": "content_delta", "content": buffer}
+
+    messages.append({'role': 'assistant', 'content': display_content, 'tool_calls': final_tool_calls})
+
+    if final_tool_calls:
+        log_debug(f"🛑 Streamed tool calls detected: {len(final_tool_calls)}. Requesting approval.")
         yield {
             "type": "tool_calls",
-            "tool_calls": tool_calls,
+            "tool_calls": final_tool_calls,
             "messages": messages
         }
     else:
         yield {
             "type": "complete",
-            "content": full_content,
+            "content": display_content,
             "messages": messages
         }
 

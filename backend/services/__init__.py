@@ -310,6 +310,52 @@ class RAGService:
         else:
             log_debug(f"No records to add for {file_path}.")
 
+    async def index_directory(self, root_path: str):
+        log_debug(f"Indexing directory: {root_path}")
+        ignore_dirs = {'.git', 'node_modules', 'venv', '__pycache__', '.gemini', 'dist', 'build', '.idea', '.vscode'}
+        # Common text-based source extensions
+        valid_extensions = {
+            '.py', '.js', '.ts', '.tsx', '.jsx', '.html', '.css', '.md', 
+            '.json', '.yaml', '.yml', '.sh', '.xml', '.java', '.c', 
+            '.cpp', '.rs', '.go', '.php', '.sql'
+        }
+        
+        tasks = []
+        
+        for root, dirs, files in os.walk(root_path):
+            # Modify dirs in-place to skip ignored directories
+            dirs[:] = [d for d in dirs if d not in ignore_dirs]
+            
+            for file in files:
+                if any(file.endswith(ext) for ext in valid_extensions):
+                    file_path = os.path.join(root, file)
+                    # Skip if file is too large (e.g., > 1MB) to avoid choking
+                    try:
+                        if os.path.getsize(file_path) > 1024 * 1024:
+                            log_debug(f"Skipping large file: {file_path}")
+                            continue
+                        
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                            # Use relative path for cleaner context if possible, otherwise absolute
+                            # Here we assume root_path is what we want context relative to.
+                            # If root_path is ".", os.path.relpath works well.
+                            rel_path = os.path.relpath(file_path, start=root_path)
+                            # Add to tasks
+                            tasks.append(self.index_file(rel_path, content))
+                    except Exception as e:
+                        log_debug(f"Error reading {file_path}: {e}")
+
+        # Execute in batches to avoid overloading Ollama (concurrency limit)
+        batch_size = 5
+        log_debug(f"Found {len(tasks)} files to index. Processing in batches of {batch_size}...")
+        
+        for i in range(0, len(tasks), batch_size):
+            batch = tasks[i:i + batch_size]
+            await asyncio.gather(*batch)
+            
+        log_debug("Directory indexing complete.")
+
     async def get_context(self, query: str, current_file: str = None, limit: int = 5) -> str:
         log_debug(f"Getting context for query: '{query}' (current_file: {current_file})")
         

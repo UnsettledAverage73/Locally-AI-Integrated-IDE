@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from fastapi.middleware.cors import CORSMiddleware
@@ -173,6 +174,12 @@ class GitCommitRequest(BaseModel):
 
 class OptimizeRequest(BaseModel):
     file_path: str
+    instruction: str
+    model: str | None = "deepseek-coder"
+
+class EditCodeRequest(BaseModel):
+    file_path: str
+    selected_code: str
     instruction: str
     model: str | None = "deepseek-coder"
 
@@ -488,6 +495,18 @@ async def rag_index_file(request: IndexFileRequest):
     await rag_service.index_file(request.file_path, request.content)
     return {"status": "indexed"}
 
+@app.post("/rag/index-directory")
+async def rag_index_directory(request: FileOperationRequest):
+    try:
+        full_path = os.path.abspath(request.path)
+        if not os.path.exists(full_path):
+             raise HTTPException(status_code=404, detail="Directory not found")
+        
+        await rag_service.index_directory(full_path)
+        return {"status": "success", "message": f"Indexed directory {request.path}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/rag/context")
 async def rag_get_context(request: GetContextRequest):
     context = await rag_service.get_context(request.query, request.current_file)
@@ -576,9 +595,68 @@ async def fs_apply_diff(request: WriteFileRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/preview/{file_path:path}")
+async def preview_local_file(file_path: str):
+    """Serves a local file for the browser preview."""
+    try:
+        # Standardize path
+        if file_path.startswith("file://"):
+            file_path = file_path[7:]
+        
+        # Handle absolute vs relative
+        if os.path.isabs(file_path):
+            full_path = file_path
+        else:
+            # Assume relative to project root
+            full_path = os.path.abspath(file_path)
+
+        if not os.path.exists(full_path):
+            return HTMLResponse(
+                content=f"<html><body style='background:#1e1e1e;color:#ff5555;font-family:sans-serif;padding:20px;'><h2>404 Not Found</h2><p>File does not exist: {full_path}</p></body></html>", 
+                status_code=404
+            )
+            
+        if os.path.isdir(full_path):
+             return HTMLResponse(
+                content=f"<html><body style='background:#1e1e1e;color:#f1fa8c;font-family:sans-serif;padding:20px;'><h2>Directory Preview</h2><p>Viewing directories is not supported. Please select an HTML or media file.</p></body></html>"
+            )
+
+        return FileResponse(full_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/files/optimize")
 def optimize_file_endpoint(req: OptimizeRequest):
     return optimizer.optimize_file(req.file_path, req.instruction, req.model)
+
+@app.post("/fs/edit_selection")
+async def edit_selection_endpoint(req: EditCodeRequest):
+    prompt = f"""You are an expert code editor.
+    
+Your task is to rewrite the following code snippet based on the user's instruction.
+Return ONLY the modified code. Do not include markdown markers like ```. Do not include explanations.
+
+Original Code:
+{req.selected_code}
+
+Instruction:
+{req.instruction}
+
+Modified Code:"""
+    
+    # Use the chat API for better instruction following than 'complete'
+    messages = [{"role": "user", "content": prompt}]
+    response = await chat_with_tools(req.model, messages)
+    
+    # Clean up the response if it has markdown
+    content = response.get("content", "")
+    if content.startswith("```"):
+        # Remove first line (```language) and last line (```)
+        lines = content.splitlines()
+        if len(lines) >= 2:
+            content = "\n".join(lines[1:-1])
+            
+    return {"modified_code": content}
 
 @app.post("/optimizer/propose-fix")
 async def propose_fix_endpoint(req: ProposeFixRequest):
@@ -596,9 +674,11 @@ async def terminal_websocket(websocket: WebSocket):
         return
 
     master_fd, slave_fd = pty.openpty()
+    cwd = os.getcwd()
     pid = os.fork()
     if pid == 0:
         os.setsid()
+        os.chdir(cwd)
         os.dup2(slave_fd, 0)
         os.dup2(slave_fd, 1)
         os.dup2(slave_fd, 2)
@@ -670,36 +750,74 @@ async def get_ops_stats():
 @app.websocket("/ws/ollama/chat_v2")
 async def websocket_chat_endpoint(websocket: WebSocket):
     await websocket.accept()
+    current_task = None
     try:
         while True:
             data = await websocket.receive_json()
             request_type = data.get("type")
 
+            if request_type == "stop":
+                if current_task and not current_task.done():
+                    current_task.cancel()
+                    print("🛑 AI Generation task cancelled by user.")
+                    await websocket.send_json({"type": "complete", "content": "...[cancelled]"})
+                continue
+
             if request_type == "chat":
+                # Cancel existing task if any
+                if current_task and not current_task.done():
+                    current_task.cancel()
+
                 model = data.get("model", "deepseek-coder")
                 messages = data.get("messages", [])
                 options = data.get("options", {})
 
-                async for chunk in stream_chat_with_tools(model, messages, options):
-                    await websocket.send_json(chunk)
+                async def run_chat():
+                    try:
+                        async for chunk in stream_chat_with_tools(model, messages, options):
+                            await websocket.send_json(chunk)
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        await websocket.send_json({"type": "error", "error": str(e)})
+
+                current_task = asyncio.create_task(run_chat())
 
             elif request_type == "tool_exec":
+                if current_task and not current_task.done():
+                    current_task.cancel()
+
                 model = data.get("model", "deepseek-coder")
                 messages = data.get("messages", [])
                 tool_call = data.get("tool_call")
                 approved = data.get("approved")
                 options = data.get("options", {})
 
-                async for chunk in stream_execute_tool_and_continue(model, messages, tool_call, approved, options):
-                    await websocket.send_json(chunk)
+                async def run_tool():
+                    try:
+                        async for chunk in stream_execute_tool_and_continue(model, messages, tool_call, approved, options):
+                            await websocket.send_json(chunk)
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as e:
+                        await websocket.send_json({"type": "error", "error": str(e)})
+
+                current_task = asyncio.create_task(run_tool())
             else:
                 await websocket.send_json({"type": "error", "error": "Invalid request type"})
 
     except WebSocketDisconnect:
+        if current_task:
+            current_task.cancel()
         print("Client disconnected from chat websocket.")
     except Exception as e:
+        if current_task:
+            current_task.cancel()
         print(f"Chat WebSocket Error: {e}")
-        await websocket.send_json({"type": "error", "error": str(e)})
+        try:
+            await websocket.send_json({"type": "error", "error": str(e)})
+        except:
+            pass
 
 @app.websocket("/ws/files")
 @app.websocket("/fs/file")

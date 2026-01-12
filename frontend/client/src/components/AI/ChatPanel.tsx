@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X } from "lucide-react";
+import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X, Settings, Info, LayoutGrid, Square, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage, ToolCall } from "../../types";
@@ -16,6 +16,9 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string) => void;
+  onCommand: (command: string, args: string) => void;
+  onStopGeneration: () => void;
+  onRemoveContext: () => void;
   isLoading: boolean;
   activeFile: string | null;
   ollamaAvailable: boolean;
@@ -24,12 +27,37 @@ interface ChatPanelProps {
   hasCheckedOllama: boolean;
   onApplyCode: (code: string) => void;
   onToolAction: (toolCall: ToolCall, approved: boolean) => void;
+  onTerminalCommand: (command: string) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [showCommands, setShowCommands] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  const commands = [
+    { name: "clear", description: "Clear chat history", icon: <Eraser className="w-3.5 h-3.5" /> },
+    { name: "fix", description: "Propose a fix for the current file", icon: <Sparkles className="w-3.5 h-3.5" /> },
+    { name: "explain", description: "Explain the current file", icon: <Bot className="w-3.5 h-3.5" /> },
+    { name: "test", description: "Generate tests for the current file", icon: <Play className="w-3.5 h-3.5" /> },
+    { name: "index", description: "Index current file for context", icon: <Sparkles className="w-3.5 h-3.5" /> },
+    { name: "index-all", description: "Index entire project", icon: <LayoutGrid className="w-3.5 h-3.5" /> },
+    { name: "browse", description: "Search the web or fetch a URL", icon: <Globe className="w-3.5 h-3.5" /> },
+    { name: "model", description: "Switch active AI model", icon: <Settings className="w-3.5 h-3.5" /> },
+    { name: "status", description: "Show session status", icon: <Info className="w-3.5 h-3.5" /> },
+    { name: "help", description: "Show available commands", icon: <Bot className="w-3.5 h-3.5" /> },
+  ];
+
+  const filteredCommands = useMemo(() => {
+    if (!input.startsWith("/")) return [];
+    const search = input.slice(1).toLowerCase();
+    return commands.filter(c => c.name.startsWith(search));
+  }, [input]);
+
+  useEffect(() => {
+    setShowCommands(input === "/" || (input.startsWith("/") && filteredCommands.length > 0));
+  }, [input, filteredCommands]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -37,11 +65,26 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
     }
   }, [messages, isLoading]);
 
+  const handleCommandClick = (cmd: string) => {
+    onCommand(cmd, "");
+    setInput("");
+    setShowCommands(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    onSendMessage(input);
+    
+    if (input.startsWith("/")) {
+      const parts = input.slice(1).split(" ");
+      const command = parts[0].toLowerCase();
+      const args = parts.slice(1).join(" ");
+      onCommand(command, args);
+    } else {
+      onSendMessage(input);
+    }
     setInput("");
+    setShowCommands(false);
   };
 
   const handleClearIndex = async () => {
@@ -67,6 +110,25 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
 // ... existing CodeBlock code ...
     const match = /language-(\w+)/.exec(className || '');
     const codeContent = String(children).replace(/\n$/, '');
+    const language = match ? match[1].toLowerCase() : '';
+    const isShell = ['bash', 'sh', 'shell', 'powershell', 'ps1', 'cmd'].includes(language);
+
+    const sanitizeShellCommand = (cmd: string) => {
+        // Handle common LLM tool-call hallucinations in code blocks
+        // Pattern 1: run_shell_command(command="ls -la")
+        const pattern1 = cmd.match(/run_shell_command\s*\(\s*command\s*=\s*["'](.+?)["']\s*\)/s);
+        if (pattern1) return pattern1[1];
+
+        // Pattern 2: run_shell_command("ls -la")
+        const pattern2 = cmd.match(/run_shell_command\s*\(\s*["'](.+?)["']\s*\)/s);
+        if (pattern2) return pattern2[1];
+
+        // Pattern 3: run_shell_command: ls -la
+        const pattern3 = cmd.match(/run_shell_command\s*:\s*(.+)/s);
+        if (pattern3) return pattern3[1].trim();
+
+        return cmd;
+    };
 
     return !inline && match ? (
       <div className="relative group my-4 rounded-md overflow-hidden border border-border/50 bg-[#1e1e1e]">
@@ -78,20 +140,33 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                     <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/20" />
                     <div className="w-2.5 h-2.5 rounded-full bg-green-500/20" />
                 </div>
-                <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider ml-1">{match[1]}</span>
+                <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider ml-1">{language}</span>
              </div>
-             {activeFile && (
-                 <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-5 text-[10px] gap-1 text-green-400 hover:text-green-300 hover:bg-green-400/10 transition-colors px-2"
-                    onClick={() => onApplyCode(codeContent)}
-                    title={`Apply code to ${activeFile}`}
-                 >
-                    <Play className="w-2.5 h-2.5" />
-                    APPLY
-                 </Button>
-             )}
+             <div className="flex items-center gap-2">
+                {isShell ? (
+                     <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-5 text-[10px] gap-1 text-blue-400 hover:text-blue-300 hover:bg-blue-400/10 transition-colors px-2"
+                        onClick={() => onTerminalCommand(sanitizeShellCommand(codeContent))}
+                        title="Run in Terminal"
+                     >
+                        <Play className="w-2.5 h-2.5" />
+                        RUN
+                     </Button>
+                ) : activeFile ? (
+                     <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-5 text-[10px] gap-1 text-green-400 hover:text-green-300 hover:bg-green-400/10 transition-colors px-2"
+                        onClick={() => onApplyCode(codeContent)}
+                        title={`Apply code to ${activeFile}`}
+                     >
+                        <Play className="w-2.5 h-2.5" />
+                        APPLY
+                     </Button>
+                ) : null}
+             </div>
           </div>
           <SyntaxHighlighter
             style={vscDarkPlus}
@@ -108,7 +183,7 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
         {children}
       </code>
     );
-  }, [activeFile, onApplyCode]);
+  }, [activeFile, onApplyCode, onTerminalCommand]);
 
   return (
     <div className="h-full flex flex-col bg-card/40 backdrop-blur-xl border-l border-border/50 shadow-2xl relative z-10">
@@ -178,7 +253,7 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
             </motion.div>
         )}
 
-        {messages.map((msg, i) => {
+        {messages.filter(m => m.role !== 'system' || m.type === 'permission_request').map((msg, i) => {
             // 1. Permission Request Card
             if (msg.type === 'permission_request' && msg.tool_calls && msg.tool_calls.length > 0) {
                 return (
@@ -209,7 +284,28 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
                                     <div className="flex items-center gap-2 mb-1.5 opacity-70 border-b border-border/20 pb-1">
                                         <span className="text-accent font-bold">{tool.function.name}</span>
                                     </div>
-                                    <pre className="text-gray-300 whitespace-pre-wrap">{JSON.stringify(tool.function.arguments, null, 2)}</pre>
+                                    <div className="text-gray-300 whitespace-pre-wrap">
+                                        {(() => {
+                                            const args = typeof tool.function.arguments === 'string' 
+                                                ? JSON.parse(tool.function.arguments) 
+                                                : tool.function.arguments;
+                                            
+                                            if (tool.function.name === 'scaffold_project') {
+                                                return (
+                                                    <div>
+                                                        <div className="text-blue-400 mb-1">Base Path: {args.base_path}</div>
+                                                        <div className="text-muted-foreground mt-2">Files to create:</div>
+                                                        <ul className="list-disc pl-4 mt-1">
+                                                            {Object.keys(args.file_structure || {}).map(f => (
+                                                                <li key={f} className="text-[10px]">{f}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                );
+                                            }
+                                            return <pre>{JSON.stringify(args, null, 2)}</pre>;
+                                        })()}
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2">
@@ -303,12 +399,51 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-border/50 bg-background/30 backdrop-blur-md">
+      <div className="p-3 border-t border-border/50 bg-background/30 backdrop-blur-md relative">
+        <AnimatePresence>
+          {showCommands && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="absolute bottom-full left-3 right-3 mb-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden z-50"
+            >
+              <div className="p-2 border-b border-border/50 bg-muted/30">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Available Commands</span>
+              </div>
+              <div className="max-h-[200px] overflow-y-auto p-1">
+                {filteredCommands.map((cmd) => (
+                  <button
+                    key={cmd.name}
+                    onClick={() => handleCommandClick(cmd.name)}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors text-left group"
+                  >
+                    <div className="p-1.5 rounded-md bg-muted group-hover:bg-accent-foreground/10 transition-colors">
+                      {cmd.icon}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">/{cmd.name}</div>
+                      <div className="text-[10px] text-muted-foreground group-hover:text-accent-foreground/70">{cmd.description}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {activeFile && (
-            <div className="mb-2 text-[10px] text-muted-foreground flex items-center bg-accent/5 w-fit px-2 py-0.5 rounded-full border border-accent/10">
+            <div className="mb-2 text-[10px] text-muted-foreground flex items-center bg-accent/5 w-fit px-2 py-0.5 rounded-full border border-accent/10 group/ctx">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-2 animate-pulse" />
                 <span className="opacity-70">Context:</span> 
                 <span className="ml-1 font-mono text-foreground/80">{activeFile.split('/').pop()}</span>
+                <button 
+                  onClick={onRemoveContext}
+                  className="ml-1.5 hover:text-red-400 transition-colors opacity-0 group-hover/ctx:opacity-100"
+                  title="Remove context"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
             </div>
         )}
         <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-muted/30 border border-border/50 rounded-xl p-1.5 focus-within:ring-1 focus-within:ring-accent/50 focus-within:border-accent/50 transition-all shadow-sm">
@@ -319,17 +454,29 @@ export default function ChatPanel({ messages, onSendMessage, isLoading, activeFi
             className="flex-1 bg-transparent border-none focus-visible:ring-0 text-sm h-auto min-h-[40px] py-2.5 px-3 resize-none"
             autoComplete="off"
           />
-          <Button 
-            type="submit" 
-            size="icon" 
-            disabled={isLoading || !input.trim()}
-            className={cn(
-                "h-9 w-9 shrink-0 transition-all",
-                input.trim() ? "bg-accent text-accent-foreground hover:bg-accent/90" : "bg-muted text-muted-foreground"
-            )}
-          >
-            <Send className="w-4 h-4" />
-          </Button>
+          {isLoading ? (
+            <Button 
+              type="button"
+              size="icon" 
+              onClick={onStopGeneration}
+              className="h-9 w-9 shrink-0 bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-all border border-red-500/20"
+              title="Stop Generation"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+            </Button>
+          ) : (
+            <Button 
+              type="submit" 
+              size="icon" 
+              disabled={!input.trim()}
+              className={cn(
+                  "h-9 w-9 shrink-0 transition-all",
+                  input.trim() ? "bg-accent text-accent-foreground hover:bg-accent/90" : "bg-muted text-muted-foreground"
+              )}
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          )}
         </form>
         <div className="text-[10px] text-center mt-2 text-muted-foreground/40 select-none">
             AI can make mistakes. Review generated code.

@@ -2,19 +2,20 @@ import React, { useEffect, useState, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid, Globe } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import Welcome from "@/components/Editor/Welcome";
 import EditorTabs from "@/components/Editor/EditorTabs";
 import ChatPanel from "@/components/AI/ChatPanel";
-import Terminal from "@/components/Terminal/Terminal";
+import Terminal, { TerminalRef } from "@/components/Terminal/Terminal";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SearchPanel from "@/components/Search/SearchPanel";
 import FileManager from "@/components/FileManager/FileManager";
 import SourceControl from "@/components/Git/SourceControl";
 import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import BootScreen from "@/components/SystemHealth/BootScreen";
+import BrowserPanel from "@/components/Browser/BrowserPanel";
 import { Button } from "@/components/ui/button";
 import { fs, rag, llm, git } from "@/api/client";
 import { FileEntry, ChatMessage, ToolCall } from "@/types";
@@ -50,6 +51,14 @@ function App() {
     }
     setActiveFile(path);
   };
+
+  const handleOpenBrowser = () => {
+    const path = "system://browser";
+    if (!openFiles.find(f => f.path === path)) {
+        setOpenFiles(prev => [...prev, { path, content: "" }]);
+    }
+    setActiveFile(path);
+  };
   
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
@@ -62,6 +71,7 @@ function App() {
 
   const activeFileContent = openFiles.find((f) => f.path === activeFile)?.content || "";
   const chatSocket = useRef<WebSocket | null>(null);
+  const terminalRef = useRef<TerminalRef>(null);
 
   // WebSocket Chat Connection
   useEffect(() => {
@@ -241,6 +251,17 @@ function App() {
 
                   // Toast for external modifications
                   if (data.event === 'modified' || data.event === 'created') {
+                      // Auto-index the file if it's not a directory and has a valid extension
+                      if (data.path && !data.isDirectory) {
+                          try {
+                              const { content } = await fs.readFile(data.path);
+                              await rag.indexFile(data.path, content);
+                              console.log(`Auto-indexed updated file: ${data.path}`);
+                          } catch (e) {
+                              console.error(`Failed to auto-index ${data.path}`, e);
+                          }
+                      }
+
                       toast({
                           title: `File ${data.event === 'created' ? 'Created' : 'Changed'}`,
                           description: `External change: ${data.name}`,
@@ -368,6 +389,26 @@ function App() {
     }
   };
 
+  const handleIndexAll = async () => {
+    setIsIndexing(true);
+    try {
+      await rag.indexDirectory(rootPath);
+      toast({
+        title: "Project Indexed",
+        description: "Entire project has been semantically indexed.",
+        className: "bg-green-500/10 border-green-500/50 text-green-500",
+      });
+    } catch (error) {
+      toast({
+        title: "Indexing Failed",
+        description: "Could not index the project.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsIndexing(false);
+    }
+  };
+
   const handleApplyCode = async (code: string) => {
     if (!activeFile) {
         toast({
@@ -411,13 +452,13 @@ function App() {
 
     try {
         let context = "";
-        if (activeFile && ollamaAvailable) {
+        if (ollamaAvailable) {
             const { context: ragContext } = await rag.getContext(content, activeFile);
             context = ragContext;
         }
 
         const messagesToSend = context
-            ? [{ role: "system" as const, content: `Context: ${context}` }, ...newMessages]
+            ? [{ role: "system" as const, content: `You are an expert developer. Use the following project context to answer the user's request. If the context is irrelevant, ignore it. \n\nContext:\n${context}` }, ...newMessages]
             : newMessages;
         
         const model = localStorage.getItem("ai_model") || "deepseek-coder";
@@ -460,6 +501,121 @@ function App() {
           approved,
           options: { temperature: temp }
       }));
+  };
+
+  const handleStopGeneration = () => {
+    if (chatSocket.current && chatSocket.current.readyState === WebSocket.OPEN) {
+        chatSocket.current.send(JSON.stringify({ type: "stop" }));
+        setIsChatLoading(false);
+        toast({ title: "Stopped", description: "AI generation cancelled." });
+    }
+  };
+
+  const handleCommand = async (command: string, args: string) => {
+    switch (command) {
+      case "clear":
+        setChatMessages([]);
+        toast({ title: "Chat Cleared" });
+        break;
+      case "index":
+        if (!activeFile) {
+          toast({ title: "No file selected", variant: "destructive" });
+          return;
+        }
+        await handleIndex();
+        break;
+      case "index-all":
+        await handleIndexAll();
+        break;
+      case "fix":
+        if (!activeFile) {
+          toast({ title: "No file selected", variant: "destructive" });
+          return;
+        }
+        handleSendMessage(`Propose a fix for the current file: ${activeFile}. Here is the content:\n\n\`\`\`\n${activeFileContent}\n\`\`\``);
+        break;
+      case "explain":
+        if (!activeFile) {
+          toast({ title: "No file selected", variant: "destructive" });
+          return;
+        }
+        handleSendMessage(`Explain the following code in ${activeFile}:\n\n\`\`\`\n${activeFileContent}\n\`\`\``);
+        break;
+      case "test":
+        if (!activeFile) {
+          toast({ title: "No file selected", variant: "destructive" });
+          return;
+        }
+        handleSendMessage(`Generate unit tests for the following code in ${activeFile}:\n\n\`\`\`\n${activeFileContent}\n\`\`\``);
+        break;
+      case "model":
+        if (!args) {
+          setChatMessages(prev => [...prev, { 
+            role: "assistant", 
+            content: `Current model: **${localStorage.getItem("ai_model") || "deepseek-coder"}**\n\nAvailable models:\n${ollamaModels.map(m => `- \`/model ${m}\``).join("\n")}`
+          }]);
+          return;
+        }
+        if (ollamaModels.includes(args)) {
+          localStorage.setItem("ai_model", args);
+          setChatMessages(prev => [...prev, { role: "assistant", content: `Switched to model: **${args}**` }]);
+          toast({ title: "Model Switched", description: `Active model is now ${args}` });
+        } else {
+          toast({ title: "Model not found", description: `Model '${args}' is not installed in Ollama.`, variant: "destructive" });
+        }
+        break;
+      case "status":
+        setChatMessages(prev => [...prev, {
+          role: "assistant",
+          content: "### System Status\n\n" +
+                   `- **Active Model**: ${localStorage.getItem("ai_model") || "deepseek-coder"}\n` +
+                   `- **Context File**: ${activeFile ? `\`${activeFile}\`` : "None"}\n` +
+                   `- **AI Backend**: ${ollamaAvailable ? "Online 🟢" : "Offline 🔴"}\n` +
+                   `- **Git Branch**: \`${currentBranch}\`\n`
+        }]);
+        break;
+      case "browse":
+        if (!args) {
+          toast({ title: "Query required", description: "Please provide a search query or URL.", variant: "destructive" });
+          return;
+        }
+        if (args.startsWith("http")) {
+          handleSendMessage(`Fetch and summarize this URL: ${args}`);
+        } else {
+          handleSendMessage(`Search Google for: ${args} and summarize the top results.`);
+        }
+        break;
+      case "help":
+        setChatMessages(prev => [...prev, { 
+          role: "assistant", 
+          content: "### Available Commands\n\n" +
+                   "- `/clear`: Clear the current chat history.\n" +
+                   "- `/fix`: Propose a bug fix or optimization for the active file.\n" +
+                   "- `/explain`: Provide a detailed explanation of the active file.\n" +
+                   "- `/test`: Generate unit tests for the active file.\n" +
+                   "- `/model <name>`: Switch the active AI model.\n" +
+                   "- `/index`: Manually index the active file for AI context.\n" +
+                   "- `/index-all`: Index the entire project for comprehensive context awareness.\n" +
+                   "- `/browse <query|url>`: Search the web or fetch content from a URL.\n" +
+                   "- `/status`: Show current session and system status.\n" +
+                   "- `/help`: Show this help message." 
+        }]);
+        break;
+      default:
+        toast({ title: "Unknown command", description: `Command /${command} not recognized.`, variant: "destructive" });
+    }
+  };
+
+  const handleTerminalCommand = (command: string) => {
+      if (terminalRef.current) {
+          terminalRef.current.runCommand(command);
+      } else {
+          toast({
+              title: "Terminal Error",
+              description: "Terminal interface not ready.",
+              variant: "destructive"
+          });
+      }
   };
 
   if (isBooting) {
@@ -525,6 +681,15 @@ function App() {
               >
                   <HeartPulse className="w-5 h-5" />
               </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10", activeFile === 'system://browser' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                  onClick={handleOpenBrowser}
+                  title="Web Browser"
+              >
+                  <Globe className="w-5 h-5" />
+              </Button>
           </div>
 
           <ResizablePanelGroup direction="horizontal">
@@ -588,6 +753,8 @@ function App() {
                                                 initialPath={rootPath} 
                                                 onFileOpen={handleFileClick} 
                                             />
+                                        ) : activeFile === "system://browser" ? (
+                                            <BrowserPanel />
                                         ) : (
                                             <CodeEditor 
                                                 content={activeFileContent} 
@@ -609,7 +776,7 @@ function App() {
                       <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
                       
                       <ResizablePanel defaultSize={25} minSize={10}>
-                          <Terminal />
+                          <Terminal ref={terminalRef} />
                       </ResizablePanel>
                   </ResizablePanelGroup>
               </ResizablePanel>
@@ -621,6 +788,9 @@ function App() {
                   <ChatPanel 
                       messages={chatMessages} 
                       onSendMessage={handleSendMessage} 
+                      onCommand={handleCommand}
+                      onStopGeneration={handleStopGeneration}
+                      onRemoveContext={() => setActiveFile(null)}
                       isLoading={isChatLoading}
                       activeFile={activeFile}
                       ollamaAvailable={ollamaAvailable}
@@ -629,6 +799,7 @@ function App() {
                       hasCheckedOllama={hasCheckedOllama}
                       onApplyCode={handleApplyCode}
                       onToolAction={handleToolAction}
+                      onTerminalCommand={handleTerminalCommand}
                   />
               </ResizablePanel>
           </ResizablePanelGroup>

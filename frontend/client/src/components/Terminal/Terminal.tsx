@@ -40,7 +40,11 @@ const FixItModal = ({ isOpen, onClose, errorDetails, diff, onAccept }: { isOpen:
 };
 
 
-const Terminal: React.FC<TerminalProps> = ({ className }) => {
+export interface TerminalRef {
+  runCommand: (command: string) => void;
+}
+
+const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, ref) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -51,12 +55,32 @@ const Terminal: React.FC<TerminalProps> = ({ className }) => {
   const [fixDiff, setFixDiff] = useState("");
   const [fixedContent, setFixedContent] = useState("");
 
+  React.useImperativeHandle(ref, () => ({
+    runCommand: (command: string) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(command + '\r');
+        xtermRef.current?.focus();
+      } else {
+        toast({
+            title: "Terminal Disconnected",
+            description: "Cannot run command. Terminal is offline.",
+            variant: "destructive"
+        });
+      }
+    }
+  }));
+
   // Function to establish (or re-establish) the WebSocket connection
   const connectTerminal = useCallback(() => {
     if (!xtermRef.current) return;
     const term = xtermRef.current;
 
-    // Clean up existing connection if it exists
+    // If connection exists and is valid, don't reconnect
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    // Clean up existing closed/closing connection
     if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -81,8 +105,6 @@ const Terminal: React.FC<TerminalProps> = ({ className }) => {
             
             // Naive error detection
             if (output.toLowerCase().includes("error")) {
-                // This is a very basic example. A real implementation would need
-                // more robust parsing of different error formats.
                 const match = output.match(/File "(.+)", line (\d+)/);
                 if (match) {
                     setErrorDetails({
@@ -109,6 +131,8 @@ const Terminal: React.FC<TerminalProps> = ({ className }) => {
         setIsTerminated(true);
     }
   }, []);
+
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -152,9 +176,12 @@ const Terminal: React.FC<TerminalProps> = ({ className }) => {
                 wsRef.current.send(`RESIZE:${size.cols},${size.rows}`);
             }
         });
+    }
 
-        // Initial connection
+    // Only connect once
+    if (!hasInitialized.current) {
         connectTerminal();
+        hasInitialized.current = true;
     }
 
     // Resize observer to auto-fit terminal on window resize
@@ -167,11 +194,16 @@ const Terminal: React.FC<TerminalProps> = ({ className }) => {
     resizeObserver.observe(terminalRef.current);
 
     return () => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.close();
+      // Clean up only on component unmount
+      if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+      }
       if (xtermRef.current) xtermRef.current.dispose();
       resizeObserver.disconnect();
+      hasInitialized.current = false;
     };
-  }, [connectTerminal]);
+  }, []); // Empty dependency array ensures this runs once on mount
 
   const handleRestart = () => {
       if (xtermRef.current) {
@@ -257,6 +289,6 @@ const Terminal: React.FC<TerminalProps> = ({ className }) => {
         />
     </div>
   );
-};
+});
 
 export default Terminal;

@@ -1,5 +1,5 @@
 import React from "react";
-import { X, File, FileCode, FileJson, FileType } from "lucide-react";
+import { X, File, FileCode, FileJson, FileType, LayoutGrid, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface EditorTabsProps {
@@ -16,6 +16,12 @@ export default function EditorTabs({
   onTabClose,
 }: EditorTabsProps) {
   const getFileIcon = (path: string) => {
+    if (path === "system://file-manager") {
+      return <LayoutGrid className="w-3.5 h-3.5 text-accent" />;
+    }
+    if (path === "system://browser") {
+      return <Globe className="w-3.5 h-3.5 text-blue-400" />;
+    }
     if (path.endsWith(".tsx") || path.endsWith(".ts") || path.endsWith(".js") || path.endsWith(".jsx")) {
       return <FileCode className="w-3.5 h-3.5 text-blue-400" />;
     }
@@ -32,6 +38,8 @@ export default function EditorTabs({
   };
 
   const getFileName = (path: string) => {
+    if (path === "system://file-manager") return "File Manager";
+    if (path === "system://browser") return "Browser";
     return path.split("/").pop() || path;
   };
 
