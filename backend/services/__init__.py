@@ -191,6 +191,28 @@ class OllamaService:
             print(f"Completion error: {str(e)}")
             return ""
 
+from pruner import prune_code
+import asyncio
+
+def get_language_from_path(path: str) -> str:
+    ext = os.path.splitext(path)[1]
+    lang_map = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".jsx": "javascript",
+        ".html": "html",
+        ".css": "css",
+        ".json": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".md": "markdown",
+    }
+    # Fallback for unknown extensions; Tree-sitter might not support them.
+    return lang_map.get(ext)
+
+
 class RAGService:
     def __init__(self, db_path: str = LANCEDB_PATH, ollama_service: OllamaService = None):
         self.db_path = db_path
@@ -199,6 +221,7 @@ class RAGService:
         self.ollama_service = ollama_service or OllamaService()
         self.db = None
         self.table = None
+        self.chat_table = None
         self.indexed_files = set() 
         self.initialize_db()
 
@@ -213,11 +236,20 @@ class RAGService:
             except Exception:
                 self.table = None
                 log_debug("Table 'code_index' not found (will be created on first index)")
+            
+            try:
+                self.chat_table = self.db.open_table("chat_index")
+                log_debug("Opened existing table 'chat_index'")
+            except Exception:
+                self.chat_table = None
+                log_debug("Table 'chat_index' not found (will be created on first index)")
+
         except Exception as e:
             print(f"Error initializing LanceDB: {e}")
             log_debug(f"Error initializing LanceDB: {e}")
             self.db = None
             self.table = None
+            self.chat_table = None
 
     async def _chunk_code(self, content: str, max_chunk_size: int = 1000) -> List[Dict[str, Any]]:
         log_debug(f"Chunking content of size: {len(content)}")
@@ -356,40 +388,80 @@ class RAGService:
             
         log_debug("Directory indexing complete.")
 
+    async def index_chat_turn(self, user_message: str, assistant_message: str):
+        if not self.db or not self.ollama_service:
+            log_debug("Cannot index chat turn, DB or Ollama service not available.")
+            return
+
+        try:
+            log_debug("Indexing chat turn.")
+            combined_text = f"User: {user_message}\nAssistant: {assistant_message}"
+            embedding = await self.ollama_service.generate_embedding(combined_text)
+
+            if not embedding:
+                log_debug("Failed to generate embedding for chat turn.")
+                return
+
+            record = {
+                "user_message": user_message,
+                "assistant_message": assistant_message,
+                "timestamp": asyncio.get_event_loop().time(),
+                "vector": embedding,
+            }
+
+            if not self.chat_table:
+                log_debug("Creating new LanceDB table 'chat_index'.")
+                self.chat_table = self.db.create_table("chat_index", data=[record])
+            else:
+                self.chat_table.add([record])
+            log_debug("Successfully indexed chat turn.")
+        except Exception as e:
+            log_debug(f"Error indexing chat turn: {e}")
+
     async def get_context(self, query: str, current_file: str = None, limit: int = 5) -> str:
         log_debug(f"Getting context for query: '{query}' (current_file: {current_file})")
         
-        if not self.table:
-             # Try initializing if table is missing (might be first run or connection issue)
-             if not self.db:
-                 self.initialize_db()
-             # If db is now present but table still None, try opening it explicitly (in case it was created by another process/thread)
-             if self.db and not self.table:
-                 try:
-                     self.table = self.db.open_table("code_index")
-                 except:
-                     pass
+        if not self.db:
+            self.initialize_db()
 
-        if not self.ollama_service or not self.table:
-            log_debug("Ollama service or DB table not initialized. Returning empty context.")
+        if not self.ollama_service:
+            log_debug("Ollama service not initialized. Returning empty context.")
             return ""
 
-        log_debug(f"Generating embedding for query: '{query}'")
         query_embedding = await self.ollama_service.generate_embedding(query)
         if not query_embedding:
             log_debug("Failed to generate embedding for query. Returning empty context.")
             return ""
 
-        log_debug(f"Searching LanceDB with query embedding. Limit: {limit}")
-        results = self.table.search(query_embedding).limit(limit).to_list()
-        log_debug(f"Found {len(results)} results from LanceDB.")
-
-        context = []
-        for res in results:
-            log_debug(f"Retrieved result from {res['path']} (lines {res['start_line']}-{res['end_line']})")
-            context.append(f"File: {res['path']} (lines {res['start_line']}-{res['end_line']})\n{res['content']}")
+        code_context = []
+        if self.table:
+            log_debug(f"Searching code_index with query embedding. Limit: {limit}")
+            results = self.table.search(query_embedding).limit(limit).to_list()
+            log_debug(f"Found {len(results)} results from code_index.")
+            for res in results:
+                language = get_language_from_path(res['path'])
+                content = res['content']
+                if language:
+                    content = prune_code(content, language, query)
+                code_context.append(f"File: {res['path']} (lines {res['start_line']}-{res['end_line']})\n{content}")
         
-        return "\n\n".join(context)
+        chat_context = []
+        if self.chat_table:
+            log_debug(f"Searching chat_index with query embedding. Limit: 3")
+            results = self.chat_table.search(query_embedding).limit(3).to_list()
+            log_debug(f"Found {len(results)} results from chat_index.")
+            for res in results:
+                chat_context.append(f"User: {res['user_message']}\nAssistant: {res['assistant_message']}")
+
+        final_context = ""
+        if chat_context:
+            final_context += "### Relevant Chat History:\n" + "\n---\n".join(chat_context) + "\n\n"
+        
+        if code_context:
+            final_context += "### Relevant Code:\n" + "\n\n".join(code_context)
+
+        return final_context.strip()
+
 
     async def clear_index(self):
         if self.db:
@@ -399,3 +471,11 @@ class RAGService:
                 self.indexed_files.clear()
             except Exception as e:
                 print(f"Error dropping LanceDB table: {e}")
+    
+    async def clear_chat_index(self):
+        if self.db:
+            try:
+                self.db.drop_table("chat_index")
+                self.chat_table = None
+            except Exception as e:
+                print(f"Error dropping LanceDB chat table: {e}")

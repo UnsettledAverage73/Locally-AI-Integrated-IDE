@@ -32,6 +32,8 @@ from services.model_loader import ensure_nomic_model
 from routers import files, search
 from file_watcher import start_watcher
 
+import uuid
+
 # --- WEBSOCKET MANAGER ---
 class ConnectionManager:
     def __init__(self):
@@ -53,6 +55,53 @@ class ConnectionManager:
                 pass  # Handle disconnected clients
 
 manager = ConnectionManager()
+
+class TerminalManager:
+    def __init__(self):
+        self.sessions: Dict[str, Any] = {}
+
+    def create_session(self) -> str:
+        session_id = str(uuid.uuid4())
+        
+        if sys.platform == "win32":
+            # Mock session for Windows
+            self.sessions[session_id] = {"pid": None, "master_fd": None}
+            return session_id
+
+        master_fd, slave_fd = pty.openpty()
+        pid = os.fork()
+        if pid == 0: # Child process
+            os.setsid()
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            os.dup2(slave_fd, 2)
+            os.close(master_fd)
+            os.close(slave_fd)
+            shell = os.environ.get("SHELL", "/bin/bash")
+            os.execv(shell, [shell])
+        else: # Parent process
+            os.close(slave_fd)
+            self.sessions[session_id] = {"pid": pid, "master_fd": master_fd}
+            print(f"Terminal session {session_id} created with pid {pid}")
+            return session_id
+
+    def remove_session(self, session_id: str):
+        if session_id in self.sessions:
+            session = self.sessions.pop(session_id)
+            if session["pid"] is not None:
+                try:
+                    os.kill(session["pid"], 9)
+                    os.waitpid(session["pid"], 0)
+                    print(f"Terminal session {session_id} killed.")
+                except OSError:
+                    pass
+            if session["master_fd"] is not None:
+                try:
+                    os.close(session["master_fd"])
+                except OSError:
+                    pass
+
+terminal_manager = TerminalManager()
 
 # --- LIFESPAN MANAGER ---
 file_observer = None
@@ -85,6 +134,10 @@ async def lifespan(app: FastAPI):
 
     # --- SHUTDOWN LOGIC ---
     print("🛑 Shutting down...")
+    # Clean up all active terminal sessions
+    for session_id in list(terminal_manager.sessions.keys()):
+        terminal_manager.remove_session(session_id)
+        
     if file_observer:
         print("🛑 Stopping File Watcher...")
         file_observer.stop()
@@ -442,6 +495,13 @@ async def ollama_chat(request: ChatRequest):
                 request.model, request.messages, request.options
             )
 
+        # Index the chat turn for RAG
+        if response and not response.get("error"):
+            user_message = request.messages[-1]["content"]
+            assistant_message = response.get("content", "")
+            if user_message and assistant_message:
+                await rag_service.index_chat_turn(user_message, assistant_message)
+
         telemetry.log_trace(
             feature="chat",
             model=request.model,
@@ -664,84 +724,77 @@ async def propose_fix_endpoint(req: ProposeFixRequest):
 
 # --- TERMINAL ENDPOINT ---
 
-@app.websocket("/ws/terminal")
-async def terminal_websocket(websocket: WebSocket):
+@app.post("/terminals")
+async def create_terminal():
+    session_id = terminal_manager.create_session()
+    if not session_id:
+        raise HTTPException(status_code=500, detail="Failed to create terminal session.")
+    return {"session_id": session_id}
+
+@app.websocket("/ws/terminal/{session_id}")
+async def terminal_websocket(websocket: WebSocket, session_id: str):
     await websocket.accept()
+
+    session = terminal_manager.sessions.get(session_id)
+    if not session:
+        await websocket.send_text("Terminal session not found.\r\n")
+        await websocket.close()
+        return
+
+    master_fd = session["master_fd"]
 
     if sys.platform == "win32":
         await websocket.send_text("Terminal not supported on Windows.\r\n")
         await websocket.close()
         return
 
-    master_fd, slave_fd = pty.openpty()
-    cwd = os.getcwd()
-    pid = os.fork()
-    if pid == 0:
-        os.setsid()
-        os.chdir(cwd)
-        os.dup2(slave_fd, 0)
-        os.dup2(slave_fd, 1)
-        os.dup2(slave_fd, 2)
-        os.close(master_fd)
-        os.close(slave_fd)
-        shell = os.environ.get("SHELL", "/bin/bash")
-        os.execv(shell, [shell])
-    else:
-        os.close(slave_fd)
-        loop = asyncio.get_event_loop()
+    loop = asyncio.get_event_loop()
 
-        async def read_from_pty():
-            def _read():
-                try:
-                    return os.read(master_fd, 10240)
-                except OSError:
-                    return b""
-            while True:
-                output = await loop.run_in_executor(None, _read)
-                if not output:
-                    break
-                try:
-                    await websocket.send_text(output.decode(errors="replace"))
-                except:
-                    break
-
-        async def write_to_pty():
+    async def read_from_pty():
+        def _read():
             try:
-                while True:
-                    data = await websocket.receive_text()
-                    if data.startswith("RESIZE:"):
-                        try:
-                            _, params = data.split(":", 1)
-                            cols, rows = map(int, params.split(","))
-                            winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
-                        except Exception as e:
-                            print(f"Resize Error: {e}")
-                        continue
-                    os.write(master_fd, data.encode())
-            except WebSocketDisconnect:
-                pass
-            except Exception as e:
-                print(f"Write PTY Error: {e}")
+                return os.read(master_fd, 10240)
+            except (OSError, IOError):
+                return b""
+        while True:
+            output = await loop.run_in_executor(None, _read)
+            if not output:
+                break
+            try:
+                await websocket.send_text(output.decode(errors="replace"))
+            except:
+                break
 
-        task_read = asyncio.create_task(read_from_pty())
-        task_write = asyncio.create_task(write_to_pty())
+    async def write_to_pty():
         try:
-            await asyncio.wait(
-                [task_read, task_write], return_when=asyncio.FIRST_COMPLETED
-            )
-        finally:
-            task_read.cancel()
-            task_write.cancel()
-            try:
-                os.close(master_fd)
-            except:
-                pass
-            try:
-                os.kill(pid, 9)
-                os.waitpid(pid, 0)
-            except:
-                pass
+            while True:
+                data = await websocket.receive_text()
+                if data.startswith("RESIZE:"):
+                    try:
+                        _, params = data.split(":", 1)
+                        cols, rows = map(int, params.split(","))
+                        winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+                    except Exception as e:
+                        print(f"Resize Error: {e}")
+                    continue
+                os.write(master_fd, data.encode())
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            print(f"Write PTY Error: {e}")
+
+    task_read = asyncio.create_task(read_from_pty())
+    task_write = asyncio.create_task(write_to_pty())
+    try:
+        await asyncio.wait(
+            [task_read, task_write], return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        task_read.cancel()
+        task_write.cancel()
+        terminal_manager.remove_session(session_id)
+        print(f"Cleaned up terminal session {session_id}")
 
 @app.get("/ops/stats")
 async def get_ops_stats():
@@ -774,7 +827,7 @@ async def websocket_chat_endpoint(websocket: WebSocket):
 
                 async def run_chat():
                     try:
-                        async for chunk in stream_chat_with_tools(model, messages, options):
+                        async for chunk in stream_chat_with_tools(model, messages, rag_service, options):
                             await websocket.send_json(chunk)
                     except asyncio.CancelledError:
                         pass

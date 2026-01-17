@@ -201,6 +201,14 @@ export const llm = {
           return data;
       }
   };
+
+export const terminal = {
+    create: async (): Promise<{ session_id: string }> => {
+        const { data } = await apiClient.post("/terminals");
+        return data;
+    }
+};
+
 export const git = {
     status: async (): Promise<{ changes: { code: string; path: string }[] }> => {
         if (USE_MOCKS) return { changes: [] };

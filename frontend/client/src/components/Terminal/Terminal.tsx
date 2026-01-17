@@ -8,13 +8,7 @@ import { optimizer, fs } from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 
 interface TerminalProps {
-  className?: string;
-}
-
-interface ErrorDetails {
-  filePath: string;
-  lineNumber: number;
-  errorMessage: string;
+  sessionId?: string;
 }
 
 const FixItModal = ({ isOpen, onClose, errorDetails, diff, onAccept }: { isOpen: boolean, onClose: () => void, errorDetails: ErrorDetails | null, diff: string, onAccept: () => void }) => {
@@ -40,11 +34,7 @@ const FixItModal = ({ isOpen, onClose, errorDetails, diff, onAccept }: { isOpen:
 };
 
 
-export interface TerminalRef {
-  runCommand: (command: string) => void;
-}
-
-const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, ref) => {
+export default function Terminal({ sessionId }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -55,24 +45,9 @@ const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, re
   const [fixDiff, setFixDiff] = useState("");
   const [fixedContent, setFixedContent] = useState("");
 
-  React.useImperativeHandle(ref, () => ({
-    runCommand: (command: string) => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(command + '\r');
-        xtermRef.current?.focus();
-      } else {
-        toast({
-            title: "Terminal Disconnected",
-            description: "Cannot run command. Terminal is offline.",
-            variant: "destructive"
-        });
-      }
-    }
-  }));
-
   // Function to establish (or re-establish) the WebSocket connection
   const connectTerminal = useCallback(() => {
-    if (!xtermRef.current) return;
+    if (!xtermRef.current || !sessionId) return;
     const term = xtermRef.current;
 
     // If connection exists and is valid, don't reconnect
@@ -88,7 +63,7 @@ const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, re
 
     try {
         // Create new WebSocket connection to the backend PTY service
-        const ws = new WebSocket('ws://localhost:8000/ws/terminal');
+        const ws = new WebSocket(`ws://localhost:8000/ws/terminal/${sessionId}`);
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -130,7 +105,7 @@ const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, re
         console.error("Failed to connect:", e);
         setIsTerminated(true);
     }
-  }, []);
+  }, [sessionId]);
 
   const hasInitialized = useRef(false);
 
@@ -249,7 +224,7 @@ const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, re
     };
 
   return (
-    <div className={`h-full w-full bg-[#1e1e1e] flex flex-col overflow-hidden relative ${className}`}>
+    <div className={`h-full w-full bg-[#1e1e1e] flex flex-col overflow-hidden relative`}>
         <div className="h-8 bg-card/80 border-b border-border flex items-center px-4 text-xs font-mono text-muted-foreground uppercase tracking-wider select-none justify-between">
             <span>Terminal</span>
             <div className='flex items-center gap-2'>
@@ -289,6 +264,4 @@ const Terminal = React.forwardRef<TerminalRef, TerminalProps>(({ className }, re
         />
     </div>
   );
-});
-
-export default Terminal;
+}

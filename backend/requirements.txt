@@ -16,3 +16,5 @@ mcp
 pygls
 jedi
 PyYAML
+tree-sitter>=0.20.0
+tree-sitter-language-pack==0.13.0

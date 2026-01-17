@@ -20,6 +20,7 @@ interface ChatPanelProps {
   onStopGeneration: () => void;
   onRemoveContext: () => void;
   isLoading: boolean;
+  isVerifying?: boolean;
   activeFile: string | null;
   ollamaAvailable: boolean;
   ollamaModels: string[];
@@ -30,7 +31,7 @@ interface ChatPanelProps {
   onTerminalCommand: (command: string) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, isVerifying, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [showCommands, setShowCommands] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -63,7 +64,7 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, isVerifying]);
 
   const handleCommandClick = (cmd: string) => {
     onCommand(cmd, "");
@@ -393,6 +394,24 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
                         <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1.5 h-1.5 bg-foreground/40 rounded-full" />
                         <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1.5 h-1.5 bg-foreground/40 rounded-full" />
                     </div>
+                </div>
+            </motion.div>
+        )}
+
+        {isVerifying && (
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex justify-start w-full px-1"
+            >
+                <div className="bg-muted/40 border border-border/40 rounded-2xl rounded-tl-sm p-4 flex items-center space-x-3 shadow-sm">
+                    <div className="relative">
+                         <Bot className="w-4 h-4 text-accent" />
+                         <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                        </span>
+                    </div>
+                    <span className="text-xs text-yellow-500">Verifying code...</span>
                 </div>
             </motion.div>
         )}

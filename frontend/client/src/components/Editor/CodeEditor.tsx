@@ -33,6 +33,7 @@ interface CodeEditorProps {
   onSave: () => void;
   onIndex: () => void;
   isIndexing: boolean;
+  onMonacoReady?: (getDiagnostics: (code: string, language: string) => Promise<any[]>) => void;
 }
 
 export default function CodeEditor({
@@ -42,6 +43,7 @@ export default function CodeEditor({
   onSave,
   onIndex,
   isIndexing,
+  onMonacoReady,
 }: CodeEditorProps) {
   const editorRef = useRef<any>(null);
   const [monacoInstance, setMonacoInstance] = useState<any>(null);
@@ -189,6 +191,21 @@ export default function CodeEditor({
         setMonacoInstance(monaco);
     }
     
+    if (onMonacoReady) {
+      const getDiagnostics = (code: string, language: string): Promise<any[]> => {
+        return new Promise((resolve) => {
+          const tempModel = monaco.editor.createModel(code, language);
+          
+          setTimeout(() => {
+            const markers = monaco.editor.getModelMarkers({ resource: tempModel.uri });
+            tempModel.dispose();
+            resolve(markers);
+          }, 1000); // Wait for LSP to process
+        });
+      };
+      onMonacoReady(getDiagnostics);
+    }
+
     // Add keybindings
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       onSave();

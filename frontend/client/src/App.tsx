@@ -8,7 +8,7 @@ import CodeEditor from "@/components/Editor/CodeEditor";
 import Welcome from "@/components/Editor/Welcome";
 import EditorTabs from "@/components/Editor/EditorTabs";
 import ChatPanel from "@/components/AI/ChatPanel";
-import Terminal, { TerminalRef } from "@/components/Terminal/Terminal";
+import TerminalManager from "@/components/Terminal/TerminalManager";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SearchPanel from "@/components/Search/SearchPanel";
 import FileManager from "@/components/FileManager/FileManager";
@@ -43,6 +43,7 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system' | 'search'>('explorer');
   const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
+  const [getDiagnostics, setGetDiagnostics] = useState<((code: string, language: string) => Promise<any[]>) | null>(null);
   
   const handleOpenFileManager = () => {
     const path = "system://file-manager";
@@ -63,6 +64,7 @@ function App() {
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
@@ -71,7 +73,6 @@ function App() {
 
   const activeFileContent = openFiles.find((f) => f.path === activeFile)?.content || "";
   const chatSocket = useRef<WebSocket | null>(null);
-  const terminalRef = useRef<TerminalRef>(null);
 
   // WebSocket Chat Connection
   useEffect(() => {
@@ -116,6 +117,36 @@ function App() {
             
           case "complete":
             setIsChatLoading(false);
+            if (!getDiagnostics) break;
+
+            const lastMessage = chatMessages[chatMessages.length - 1];
+            if (lastMessage?.role === 'assistant') {
+              const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/;
+              const match = lastMessage.content.match(codeBlockRegex);
+
+              if (match) {
+                const language = match[1];
+                const code = match[2];
+                
+                setIsVerifying(true);
+                getDiagnostics(code, language).then(markers => {
+                  setIsVerifying(false);
+                  const errors = markers.filter(m => m.severity === 8); // 8 is monaco.MarkerSeverity.Error
+
+                  if (errors.length > 0) {
+                    const errorStr = errors.map(e => `L${e.startLineNumber}: ${e.message}`).join("\n");
+                    const correctionPrompt = `The following code has errors:\n\n\`\`\`${language}\n${code}\n\`\`\`\n\nErrors:\n${errorStr}\n\nPlease fix the errors and provide the corrected code.`;
+                    handleSendMessage(correctionPrompt);
+                  } else {
+                    toast({
+                      title: "Code Verified",
+                      description: "AI-generated code has been successfully verified.",
+                      className: "bg-green-500/10 border-green-500/50 text-green-500",
+                    });
+                  }
+                });
+              }
+            }
             break;
             
           case "error":
@@ -606,16 +637,16 @@ function App() {
     }
   };
 
+  const handleMonacoReady = (getDiagnostics: (code: string, language: string) => Promise<any[]>) => {
+    setGetDiagnostics(() => getDiagnostics);
+  };
+
   const handleTerminalCommand = (command: string) => {
-      if (terminalRef.current) {
-          terminalRef.current.runCommand(command);
-      } else {
-          toast({
-              title: "Terminal Error",
-              description: "Terminal interface not ready.",
-              variant: "destructive"
-          });
-      }
+    // TODO: Implement sending command to active terminal
+    toast({
+        title: "Command Sent",
+        description: "Sent to terminal (implementation pending).",
+    });
   };
 
   if (isBooting) {
@@ -763,6 +794,7 @@ function App() {
                                                 onSave={handleSave}
                                                 onIndex={handleIndex}
                                                 isIndexing={isIndexing}
+                                                onMonacoReady={handleMonacoReady}
                                             />
                                         )}
                                     </div>
@@ -776,7 +808,7 @@ function App() {
                       <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
                       
                       <ResizablePanel defaultSize={25} minSize={10}>
-                          <Terminal ref={terminalRef} />
+                          <TerminalManager />
                       </ResizablePanel>
                   </ResizablePanelGroup>
               </ResizablePanel>
@@ -792,6 +824,7 @@ function App() {
                       onStopGeneration={handleStopGeneration}
                       onRemoveContext={() => setActiveFile(null)}
                       isLoading={isChatLoading}
+                      isVerifying={isVerifying}
                       activeFile={activeFile}
                       ollamaAvailable={ollamaAvailable}
                       ollamaModels={ollamaModels}

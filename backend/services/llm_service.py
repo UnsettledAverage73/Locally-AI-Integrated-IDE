@@ -283,7 +283,7 @@ async def execute_tool_and_continue(model: str, messages: list, tool_call: dict,
     except Exception as e:
         return {"error": f"Ollama Error after tool execution: {str(e)}"}
 
-async def _process_llm_stream(stream, messages):
+async def _process_llm_stream(stream, messages, rag_service):
     full_content = ""
     tool_calls = []
     is_json_likely = False
@@ -369,6 +369,12 @@ async def _process_llm_stream(stream, messages):
 
     messages.append({'role': 'assistant', 'content': display_content, 'tool_calls': final_tool_calls})
 
+    # Index the chat turn if it was a standard response
+    if not final_tool_calls and rag_service:
+        user_message = next((m['content'] for m in reversed(messages) if m['role'] == 'user'), None)
+        if user_message and display_content:
+            await rag_service.index_chat_turn(user_message, display_content)
+
     if final_tool_calls:
         log_debug(f"🛑 Streamed tool calls detected: {len(final_tool_calls)}. Requesting approval.")
         yield {
@@ -384,7 +390,7 @@ async def _process_llm_stream(stream, messages):
         }
 
 
-async def stream_chat_with_tools(model: str, messages: list, options: dict = None):
+async def stream_chat_with_tools(model: str, messages: list, rag_service, options: dict = None):
     log_debug(f"Starting stream chat with {model}")
     # Persona injection logic...
     last_user_msg = messages[-1]['content'].lower()
@@ -410,7 +416,7 @@ async def stream_chat_with_tools(model: str, messages: list, options: dict = Non
             options=options,
             stream=True
         )
-        async for chunk in _process_llm_stream(stream, messages):
+        async for chunk in _process_llm_stream(stream, messages, rag_service):
             yield chunk
 
     except Exception as e:
