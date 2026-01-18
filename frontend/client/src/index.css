@@ -80,34 +80,70 @@
 }
 
 /* Light Theme */
-.theme-light {
+.theme-github-light {
   --background: hsl(0 0% 100%);
   --foreground: hsl(240 10% 4%);
-  
-  --card: hsl(0 0% 100%);
+  --card: hsl(0 0% 97%);
   --card-foreground: hsl(240 10% 4%);
-  
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(240 10% 4%);
-  
-  --primary: hsl(265 85% 60%);
+  --primary: hsl(240 5.9% 10%);
   --primary-foreground: hsl(0 0% 98%);
-  
-  --secondary: hsl(240 5% 96%);
-  --secondary-foreground: hsl(240 10% 10%);
-  
-  --muted: hsl(240 5% 96%);
-  --muted-foreground: hsl(240 4% 46%);
-  
-  --accent: hsl(240 5% 96%);
-  --accent-foreground: hsl(240 10% 10%);
-  
-  --destructive: hsl(0 84% 60%);
+  --secondary: hsl(240 4.8% 95.9%);
+  --secondary-foreground: hsl(240 5.9% 10%);
+  --muted: hsl(240 4.8% 95.9%);
+  --muted-foreground: hsl(240 3.8% 46.1%);
+  --accent: hsl(240 4.8% 95.9%);
+  --accent-foreground: hsl(240 5.9% 10%);
+  --destructive: hsl(0 84.2% 60.2%);
   --destructive-foreground: hsl(0 0% 98%);
-  
-  --border: hsl(240 6% 90%);
-  --input: hsl(240 6% 90%);
-  --ring: hsl(265 85% 60%);
+  --border: hsl(240 5.9% 90%);
+  --input: hsl(240 5.9% 90%);
+  --ring: hsl(240 5.9% 10%);
+}
+
+.theme-solarized-dark {
+  --background: hsl(204 22% 15%);
+  --foreground: hsl(195 8% 79%);
+  --card: hsl(204 22% 20%);
+  --card-foreground: hsl(195 8% 79%);
+  --popover: hsl(204 22% 12%);
+  --popover-foreground: hsl(195 8% 79%);
+  --primary: hsl(205 100% 60%);
+  --primary-foreground: hsl(204 22% 15%);
+  --secondary: hsl(204 22% 25%);
+  --secondary-foreground: hsl(195 8% 79%);
+  --muted: hsl(204 22% 25%);
+  --muted-foreground: hsl(195 8% 50%);
+  --accent: hsl(45 100% 51%);
+  --accent-foreground: hsl(204 22% 15%);
+  --destructive: hsl(9 100% 64%);
+  --destructive-foreground: hsl(195 8% 79%);
+  --border: hsl(204 22% 25%);
+  --input: hsl(204 22% 25%);
+  --ring: hsl(205 100% 60%);
+}
+
+.theme-monokai {
+  --background: hsl(240 3% 15%);
+  --foreground: hsl(60 8% 95%);
+  --card: hsl(240 3% 20%);
+  --card-foreground: hsl(60 8% 95%);
+  --popover: hsl(240 3% 12%);
+  --popover-foreground: hsl(60 8% 95%);
+  --primary: hsl(174 65% 65%);
+  --primary-foreground: hsl(240 3% 15%);
+  --secondary: hsl(240 3% 25%);
+  --secondary-foreground: hsl(60 8% 95%);
+  --muted: hsl(240 3% 25%);
+  --muted-foreground: hsl(60 8% 60%);
+  --accent: hsl(300 76% 72%);
+  --accent-foreground: hsl(240 3% 15%);
+  --destructive: hsl(0 100% 60%);
+  --destructive-foreground: hsl(60 8% 95%);
+  --border: hsl(240 3% 25%);
+  --input: hsl(240 3% 25%);
+  --ring: hsl(174 65% 65%);
 }
 
 /* Dracula Theme (Refined) */

@@ -25,9 +25,10 @@ interface SettingsModalProps {
 
 const THEMES = [
   { id: "default", name: "Midnight (Default)", icon: Moon },
-  { id: "theme-light", name: "Light", icon: Sun },
+  { id: "theme-github-light", name: "GitHub Light", icon: Sun },
   { id: "theme-dracula", name: "Dracula", icon: Paintbrush },
   { id: "theme-monokai", name: "Monokai", icon: Monitor },
+  { id: "theme-solarized-dark", name: "Solarized Dark", icon: Monitor },
 ];
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {

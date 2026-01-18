@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { llm, optimizer } from "@/api/client";
+import { createLanguageClient, State } from "@/lib/language-client";
+import { MonacoLanguageClient } from "monaco-languageclient";
 import { useAutoSave } from "../../hooks/useAutoSave";
 
 const getLanguage = (filePath: string) => {
@@ -34,6 +36,7 @@ interface CodeEditorProps {
   onIndex: () => void;
   isIndexing: boolean;
   onMonacoReady?: (getDiagnostics: (code: string, language: string) => Promise<any[]>) => void;
+  onLspStateChange?: (state: State) => void;
 }
 
 export default function CodeEditor({
@@ -44,8 +47,10 @@ export default function CodeEditor({
   onIndex,
   isIndexing,
   onMonacoReady,
+  onLspStateChange,
 }: CodeEditorProps) {
   const editorRef = useRef<any>(null);
+  const languageClientRef = useRef<MonacoLanguageClient | null>(null);
   const [monacoInstance, setMonacoInstance] = useState<any>(null);
   const completionProviderRef = useRef<any>(null);
   
@@ -185,10 +190,14 @@ export default function CodeEditor({
       }, 100);
   };
 
-  const handleEditorDidMount: OnMount = (editor, monaco) => {
+  const handleEditorDidMount: OnMount = async (editor, monaco) => {
     editorRef.current = editor;
     if (monacoInstance !== monaco) {
         setMonacoInstance(monaco);
+    }
+
+    if (onLspStateChange) {
+        languageClientRef.current = await createLanguageClient(editor, onLspStateChange);
     }
     
     if (onMonacoReady) {
@@ -220,6 +229,9 @@ export default function CodeEditor({
   useEffect(() => {
       return () => {
           editorRef.current = null;
+          if (languageClientRef.current) {
+              languageClientRef.current.stop();
+          }
       };
   }, []);
 
