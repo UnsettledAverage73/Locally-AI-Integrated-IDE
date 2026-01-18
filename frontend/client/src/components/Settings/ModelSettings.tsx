@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -12,7 +11,7 @@ import {
 import { llm, system } from "@/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { useDownload } from "@/context/DownloadContext";
-import { Loader2, Trash2, Download, HardDrive, Cpu, AlertTriangle, Check } from "lucide-react";
+import { Loader2, Trash2, Download, HardDrive, Cpu, AlertTriangle, Check, Info } from "lucide-react";
 
 interface ModelOption {
   name: string;
@@ -20,7 +19,7 @@ interface ModelOption {
   size_gb: number; // Approx download size
   min_ram_gb: number;
 }
-// ... KNOWN_MODELS kept as is ...
+
 const KNOWN_MODELS: ModelOption[] = [
   { name: "qwen2.5:0.5b", label: "Qwen 2.5 (0.5B) - Tiny/Fast", size_gb: 0.4, min_ram_gb: 2 },
   { name: "gemma:2b", label: "Gemma (2B) - Light", size_gb: 1.5, min_ram_gb: 4 },
@@ -28,59 +27,50 @@ const KNOWN_MODELS: ModelOption[] = [
   { name: "deepseek-coder", label: "DeepSeek Coder (Standard)", size_gb: 4.0, min_ram_gb: 8 },
   { name: "llama3:8b", label: "Llama 3 (8B) - Smart", size_gb: 4.7, min_ram_gb: 12 },
   { name: "mistral", label: "Mistral (7B)", size_gb: 4.1, min_ram_gb: 12 },
-  { name: "llama3:70b", label: "Llama 3 (70B) - Genius", size_gb: 40, min_ram_gb: 48 }, 
+  { name: "llama3:70b", label: "Llama 3 (70B) - Genius", size_gb: 40, min_ram_gb: 48 },
 ];
 
 export default function ModelSettings() {
   const { toast } = useToast();
   const { startDownload, isDownloading, modelName: downloadingModelName, progress } = useDownload();
   const [installedModels, setInstalledModels] = useState<string[]>([]);
-  // ... rest of state ...
   const [systemStats, setSystemStats] = useState<{
     ram_total_gb: number;
     ram_available_gb: number;
     disk_total_gb: number;
     disk_free_gb: number;
   } | null>(null);
-  
   const [loading, setLoading] = useState(false);
-  // removed pullingModel local state
   const [profile, setProfile] = useState("balanced");
   const [activeModel, setActiveModel] = useState("deepseek-coder");
+  const [selectedModel, setSelectedModel] = useState<any | null>(null);
 
-  // ... useEffect ...
   useEffect(() => {
     loadData();
     const savedProfile = localStorage.getItem("ai_profile") || "balanced";
     setProfile(savedProfile);
     const savedModel = localStorage.getItem("ai_model") || "deepseek-coder";
     setActiveModel(savedModel);
-  }, [isDownloading]); // Reload when download status changes
+  }, [isDownloading]);
 
-  // ... loadData ...
   const loadData = async () => {
     setLoading(true);
-    
-    // Load models
     try {
       const modelsData = await llm.models();
       setInstalledModels(modelsData.models);
     } catch (error) {
       console.error("Failed to load models", error);
-      toast({ 
-        title: "Model Error", 
-        description: "Could not list Ollama models.", 
-        variant: "destructive" 
+      toast({
+        title: "Model Error",
+        description: "Could not list Ollama models.",
+        variant: "destructive",
       });
     }
-
-    // Load system stats
     try {
       const statsData = await system.getStats();
       setSystemStats(statsData);
     } catch (error) {
        console.error("Failed to load system stats", error);
-       // Don't toast for stats, it's less critical
     } finally {
       setLoading(false);
     }
@@ -90,24 +80,25 @@ export default function ModelSettings() {
     setActiveModel(val);
     localStorage.setItem("ai_model", val);
   };
-// ... rest of file ...
 
   const handlePullModel = (modelName: string) => {
     startDownload(modelName);
   };
 
   const handleDeleteModel = async (modelName: string) => {
-    // ... same as before ...
     if (!confirm(`Are you sure you want to delete ${modelName}?`)) return;
     try {
         await llm.deleteModel(modelName);
         toast({ title: "Model Deleted", description: `${modelName} has been removed.` });
         await loadData();
+        if (selectedModel && selectedModel.name === modelName) {
+          setSelectedModel(null);
+        }
     } catch (error) {
         toast({ title: "Delete Failed", description: "Could not delete model.", variant: "destructive" });
     }
   };
-  
+
   const handleProfileChange = (val: string) => {
     setProfile(val);
     localStorage.setItem("ai_profile", val);
@@ -117,20 +108,32 @@ export default function ModelSettings() {
     localStorage.setItem("ai_temperature", temp.toString());
   };
 
+  const handleShowInfo = async (modelName: string) => {
+    try {
+      const modelInfo = await llm.show(modelName);
+      setSelectedModel(modelInfo);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Could not fetch model information.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const availableRam = systemStats?.ram_total_gb || 0;
   const availableDisk = systemStats?.disk_free_gb || 0;
   const isDiskCritical = availableDisk < 5;
-  
+
   const filteredModels = KNOWN_MODELS.filter(m => {
     if (availableRam < 8) {
         return m.name.includes("1b") || m.name.includes("2b") || m.name.includes("3b") || m.name.includes("0.5b");
     }
-    return true; 
+    return true;
   });
 
   return (
     <div className="space-y-6">
-      {/* System Stats Header - Same as before */}
       <div className="grid grid-cols-2 gap-4">
         <div className="p-3 border rounded-lg bg-accent/5 flex items-center space-x-3">
             <Cpu className="w-5 h-5 text-primary" />
@@ -155,7 +158,6 @@ export default function ModelSettings() {
         </div>
       )}
 
-      {/* Active Model & Profile Selectors */}
       <div className="space-y-4">
         <div className="space-y-2">
             <Label>Active Chat Model</Label>
@@ -191,7 +193,6 @@ export default function ModelSettings() {
         </div>
       </div>
 
-      {/* Installed Models List - Same as before */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
             <Label>Installed Models</Label>
@@ -206,17 +207,37 @@ export default function ModelSettings() {
             ) : (
                 installedModels.map(model => (
                     <div key={model} className="flex items-center justify-between p-3 text-sm">
-                        <span>{model}</span>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteModel(model)}>
-                            <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <Button variant="link" className="p-0 h-auto text-sm" onClick={() => handleShowInfo(model)}>{model}</Button>
+                        <div>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => handleShowInfo(model)}>
+                              <Info className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteModel(model)}>
+                              <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                     </div>
                 ))
             )}
         </div>
       </div>
 
-      {/* Available Models */}
+      {selectedModel && (
+        <div className="space-y-4 p-4 border rounded-lg bg-accent/5">
+            <h3 className="font-semibold">{selectedModel.name}</h3>
+            <div className="text-xs text-muted-foreground space-y-2">
+              <p><strong>Size:</strong> {(selectedModel.size / 1e9).toFixed(2)} GB</p>
+              <p><strong>Family:</strong> {selectedModel.details.family}</p>
+              <p><strong>Parameter Size:</strong> {selectedModel.details.parameter_size}</p>
+              <p><strong>Quantization Level:</strong> {selectedModel.details.quantization_level}</p>
+            </div>
+            <h4 className="font-semibold pt-2">Modelfile:</h4>
+            <pre className="text-xs bg-background p-2 rounded-md overflow-x-auto">
+              <code>{selectedModel.modelfile}</code>
+            </pre>
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label>Available Models (Recommended for your Hardware)</Label>
         <div className="grid gap-2">

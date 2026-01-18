@@ -1,3 +1,4 @@
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X, Settings, Info, LayoutGrid, Square, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,11 +30,15 @@ interface ChatPanelProps {
   onApplyCode: (code: string) => void;
   onToolAction: (toolCall: ToolCall, approved: boolean) => void;
   onTerminalCommand: (command: string) => void;
+  onModelChange: (model: string) => void;
+  onContextCommand: (contextType: string, searchTerm: string) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, isVerifying, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, isVerifying, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand, onModelChange, onContextCommand }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [showCommands, setShowCommands] = useState(false);
+  const [showContextSuggestions, setShowContextSuggestions] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(ollamaModels[0] || "deepseek-coder");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -50,6 +55,11 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
     { name: "help", description: "Show available commands", icon: <Bot className="w-3.5 h-3.5" /> },
   ];
 
+  const contextSuggestions = [
+    { name: "Docs", description: "Search documentation" },
+    { name: "Web", description: "Search the web" },
+  ];
+
   const filteredCommands = useMemo(() => {
     if (!input.startsWith("/")) return [];
     const search = input.slice(1).toLowerCase();
@@ -58,6 +68,7 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
 
   useEffect(() => {
     setShowCommands(input === "/" || (input.startsWith("/") && filteredCommands.length > 0));
+    setShowContextSuggestions(input.startsWith("@"));
   }, [input, filteredCommands]);
 
   useEffect(() => {
@@ -72,11 +83,21 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
     setShowCommands(false);
   };
 
+  const handleContextSuggestionClick = (suggestion: string) => {
+    setInput(`@${suggestion} `); // Append the suggestion with a space
+    setShowContextSuggestions(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     
-    if (input.startsWith("/")) {
+    if (input.startsWith("@")) {
+      const parts = input.slice(1).split(" ", 1);
+      const contextType = parts[0];
+      const searchTerm = input.slice(contextType.length + 2); // +2 for "@" and space
+      onContextCommand(contextType, searchTerm);
+    } else if (input.startsWith("/")) {
       const parts = input.slice(1).split(" ");
       const command = parts[0].toLowerCase();
       const args = parts.slice(1).join(" ");
@@ -86,6 +107,7 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
     }
     setInput("");
     setShowCommands(false);
+    setShowContextSuggestions(false);
   };
 
   const handleClearIndex = async () => {
@@ -196,9 +218,26 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
           </div>
           <span className="text-xs font-medium tracking-wide text-foreground/90">AI ASSISTANT</span>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleClearIndex} title="Clear AI Index and Chat" className="h-7 w-7 hover:bg-red-500/10 hover:text-red-400 transition-colors">
-          <Eraser className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={selectedModel} onValueChange={(model) => {
+            setSelectedModel(model);
+            onModelChange(model);
+          }}>
+            <SelectTrigger className="w-[180px] h-7 text-xs">
+              <SelectValue placeholder="Select a model" />
+            </SelectTrigger>
+            <SelectContent>
+              {ollamaModels.map((model) => (
+                <SelectItem key={model} value={model} className="text-xs">
+                  {model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="ghost" size="icon" onClick={handleClearIndex} title="Clear AI Index and Chat" className="h-7 w-7 hover:bg-red-500/10 hover:text-red-400 transition-colors">
+            <Eraser className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -443,6 +482,32 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
                     <div className="flex-1">
                       <div className="text-sm font-medium">/{cmd.name}</div>
                       <div className="text-[10px] text-muted-foreground group-hover:text-accent-foreground/70">{cmd.description}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+          {showContextSuggestions && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="absolute bottom-full left-3 right-3 mb-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden z-50"
+            >
+              <div className="p-2 border-b border-border/50 bg-muted/30">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Context Suggestions</span>
+              </div>
+              <div className="max-h-[200px] overflow-y-auto p-1">
+                {contextSuggestions.map((sug) => (
+                  <button
+                    key={sug.name}
+                    onClick={() => handleContextSuggestionClick(sug.name)}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors text-left group"
+                  >
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">@{sug.name}</div>
+                      <div className="text-[10px] text-muted-foreground group-hover:text-accent-foreground/70">{sug.description}</div>
                     </div>
                   </button>
                 ))}

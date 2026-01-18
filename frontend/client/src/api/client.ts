@@ -270,6 +270,11 @@ export const search = {
         if (USE_MOCKS) return { results: "mock/file.ts:10: const x = 'hello'\n" };
         const { data } = await apiClient.post("/search/text", { query, path });
         return data;
+    },
+    contextSearch: async (contextType: string, searchTerm: string): Promise<{ context: string }> => {
+        if (USE_MOCKS) return { context: "Mock context for @ search" };
+        const { data } = await apiClient.post("/mcp/context-search", { context_type: contextType, search_term: searchTerm });
+        return data;
     }
 };
 

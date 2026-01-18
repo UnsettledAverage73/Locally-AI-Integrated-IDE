@@ -17,7 +17,7 @@ import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import BootScreen from "@/components/SystemHealth/BootScreen";
 import BrowserPanel from "@/components/Browser/BrowserPanel";
 import { Button } from "@/components/ui/button";
-import { fs, rag, llm, git } from "@/api/client";
+import { fs, rag, llm, git, search } from "@/api/client";
 import { FileEntry, ChatMessage, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DownloadProvider } from "@/context/DownloadContext";
@@ -32,8 +32,12 @@ interface OpenFile {
   content: string;
 }
 
+import { usePlugins } from "@/plugin/usePlugins";
+
 function App() {
   const { toast } = useToast();
+  const [commands, setCommands] = useState<Map<string, () => void>>(new Map());
+  const pluginManager = usePlugins(setCommands);
   
   // State
   const [rootPath, setRootPath] = useState<string>(localStorage.getItem("rootPath") || ".");
@@ -637,6 +641,33 @@ function App() {
     }
   };
 
+  const handleModelChange = (model: string) => {
+    localStorage.setItem("ai_model", model);
+    toast({
+      title: "Model Switched",
+      description: `Active model is now ${model}`,
+      className: "bg-green-500/10 border-green-500/50 text-green-500",
+    });
+  };
+
+  const handleContextCommand = async (contextType: string, searchTerm: string) => {
+    let result = "";
+    try {
+      // For now, directly call the backend search for context.
+      // In future, this might involve a more complex flow, e.g., using tool calls.
+      const { context } = await search.contextSearch(contextType, searchTerm);
+      result = context;
+    } catch (error: unknown) {
+      result = `Error fetching context: ${(error as Error).message}`;
+      toast({ title: "Context Error", description: result, variant: "destructive" });
+    }
+
+    setChatMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: `Context for @${contextType} ${searchTerm}:\n\n\`\`\`\n${result}\n\`\`\`` },
+    ]);
+  };
+
   const handleMonacoReady = (getDiagnostics: (code: string, language: string) => Promise<any[]>) => {
     setGetDiagnostics(() => getDiagnostics);
   };
@@ -833,6 +864,8 @@ function App() {
                       onApplyCode={handleApplyCode}
                       onToolAction={handleToolAction}
                       onTerminalCommand={handleTerminalCommand}
+                      onModelChange={handleModelChange}
+                      onContextCommand={handleContextCommand}
                   />
               </ResizablePanel>
           </ResizablePanelGroup>

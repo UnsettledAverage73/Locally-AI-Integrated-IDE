@@ -7,6 +7,7 @@ from mcp_server.command import mcp as terminal_mcp
 from mcp_server.github import mcp as github_mcp
 from mcp_server.search import mcp as search_mcp
 from mcp_server.browser import mcp as browser_mcp
+from mcp_server.git import mcp as git_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -19,7 +20,8 @@ class MCPManager:
         gh_tools = await github_mcp.list_tools()
         search_tools = await search_mcp.list_tools()
         browser_tools = await browser_mcp.list_tools()
-        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools
+        git_tools = await git_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + git_tools
         
         tools = []
         for tool in all_tools:
@@ -58,8 +60,13 @@ class MCPManager:
                         if any(t.name == name for t in browser_tools):
                             result = await browser_mcp.call_tool(name, arguments)
                         else:
-                            # Check Search tools
-                            result = await search_mcp.call_tool(name, arguments)
+                            # Check Git tools
+                            git_tools = await git_mcp.list_tools()
+                            if any(t.name == name for t in git_tools):
+                                result = await git_mcp.call_tool(name, arguments)
+                            else:
+                                # Check Search tools
+                                result = await search_mcp.call_tool(name, arguments)
             
             # Extract text from the result
             output = []

@@ -22,7 +22,8 @@ if sys.platform != "win32":
     import select
 
 # --- SERVICES ---
-from services import OllamaService, RAGService
+from services.OllamaService import OllamaService
+from services.RAGService import RAGService
 from services.resource_monitor import get_system_resources as get_full_system_resources
 from bedrock_service import BedrockService
 from git_service import GitService
@@ -31,7 +32,7 @@ from services.llm_service import chat_with_tools, execute_tool_and_continue, str
 from services.model_loader import ensure_nomic_model
 from routers import files, search
 from file_watcher import start_watcher
-
+from mcp_server.context_search import context_search
 import uuid
 
 # --- WEBSOCKET MANAGER ---
@@ -248,7 +249,12 @@ class ExecuteToolRequest(BaseModel):
     approved: bool
     options: Dict[str, Any] | None = None
 
+class ContextSearchRequest(BaseModel):
+    context_type: str
+    search_term: str
+
 # --- ENDPOINTS ---
+
 
 @app.get("/")
 async def read_root():
@@ -464,6 +470,14 @@ async def ollama_delete(model_name: str):
 @app.get("/api/system-resources")
 async def get_system_resources():
     return get_full_system_resources()
+
+@app.post("/mcp/context-search")
+async def mcp_context_search(request: ContextSearchRequest):
+    try:
+        context = await context_search(f"@{request.context_type} {request.search_term}")
+        return {"context": context}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ollama/chat")
 async def ollama_chat(request: ChatRequest):
