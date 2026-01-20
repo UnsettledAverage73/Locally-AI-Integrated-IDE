@@ -1,6 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X, Settings, Info, LayoutGrid, Square, Globe } from "lucide-react";
+import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X, Settings, Info, LayoutGrid, Square, Globe, MoreVertical, FileText, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage, ToolCall } from "../../types";
@@ -32,9 +33,14 @@ interface ChatPanelProps {
   onTerminalCommand: (command: string) => void;
   onModelChange: (model: string) => void;
   onContextCommand: (contextType: string, searchTerm: string) => void;
+  forwardedRef: React.Ref<HTMLInputElement>;
+  queuedMessages: string[];
+  onQueueMessage: (message: string) => void;
+  onRemoveQueuedMessage: (index: number) => void;
+  onReorderQueuedMessages: (newOrder: string[]) => void;
 }
 
-export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, isVerifying, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand, onModelChange, onContextCommand }: ChatPanelProps) {
+export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGeneration, onRemoveContext, isLoading, isVerifying, activeFile, ollamaAvailable, ollamaModels, onClearChat, hasCheckedOllama, onApplyCode, onToolAction, onTerminalCommand, onModelChange, onContextCommand, forwardedRef, queuedMessages, onQueueMessage, onRemoveQueuedMessage, onReorderQueuedMessages }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [showCommands, setShowCommands] = useState(false);
   const [showContextSuggestions, setShowContextSuggestions] = useState(false);
@@ -88,10 +94,23 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
     setShowContextSuggestions(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent | React.KeyboardEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim()) return;
+
+    if (isLoading) {
+        // If agent is busy, always queue the message unless Ctrl+Enter is used
+        if (!(e as React.KeyboardEvent).ctrlKey) {
+            onQueueMessage(input);
+            setInput("");
+            return;
+        }
+        // If Ctrl+Enter and agent is busy, force push (stop current, send new)
+        onStopGeneration(); // Stop current generation
+        // Fall through to send message immediately
+    }
     
+    // If agent is not busy, or Ctrl+Enter was used to force push
     if (input.startsWith("@")) {
       const parts = input.slice(1).split(" ", 1);
       const contextType = parts[0];
@@ -128,6 +147,79 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
     }
   };
 
+  const handleExportMarkdown = async () => {
+    const markdownContent = messages
+      .map((msg) => {
+        if (msg.role === 'system') return `> ${msg.content}`;
+        return `### ${msg.role === 'user' ? 'User' : 'Assistant'}\n\n${msg.content}`;
+      })
+      .join('\n\n---\n\n');
+
+    const result = await (window as any).fileSystem?.saveFile('chat.md', markdownContent);
+    if (result?.success) {
+      toast({
+        title: "Chat Exported",
+        description: `Chat saved to ${result.path}`,
+      });
+    } else if (result?.error) {
+      toast({
+        title: "Export Failed",
+        description: result.error,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleShareHtml = async () => {
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Chat Export</title>
+        <style>
+          body { font-family: sans-serif; background-color: #1a1a1a; color: #f0f0f0; padding: 2rem; }
+          .message { margin-bottom: 1.5rem; }
+          .role { font-weight: bold; text-transform: uppercase; margin-bottom: 0.5rem; color: #999; }
+          .user .role { color: #5ea5ff; }
+          .assistant .role { color: #ff9f5e; }
+          .content { background-color: #2a2a2a; padding: 1rem; border-radius: 0.5rem; }
+          pre { background-color: #1e1e1e; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        </style>
+      </head>
+      <body>
+        <h1>Chat Export</h1>
+        ${messages
+          .map(
+            (msg) => `
+          <div class="message ${msg.role}">
+            <div class="role">${msg.role}</div>
+            <div class="content">
+              ${msg.content.replace(/```(\w+)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')}
+            </div>
+          </div>
+        `
+          )
+          .join('')}
+      </body>
+      </html>
+    `;
+
+    const result = await (window as any).fileSystem?.saveFile('chat.html', htmlContent);
+    if (result?.success) {
+      toast({
+        title: "Chat Shared",
+        description: `Chat saved to ${result.path}`,
+      });
+    } else if (result?.error) {
+      toast({
+        title: "Share Failed",
+        description: result.error,
+        variant: "destructive",
+      });
+    }
+  };
   // Custom component to render code blocks with syntax highlighting and "Apply" button
   const CodeBlock = useMemo(() => ({ inline, className, children, ...props }: any) => {
 // ... existing CodeBlock code ...
@@ -237,6 +329,23 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
           <Button variant="ghost" size="icon" onClick={handleClearIndex} title="Clear AI Index and Chat" className="h-7 w-7 hover:bg-red-500/10 hover:text-red-400 transition-colors">
             <Eraser className="w-3.5 h-3.5" />
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={handleExportMarkdown}>
+                <FileText className="w-3.5 h-3.5 mr-2" />
+                Export to Markdown
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleShareHtml}>
+                <Share2 className="w-3.5 h-3.5 mr-2" />
+                Share as HTML
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -532,8 +641,14 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
         )}
         <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-muted/30 border border-border/50 rounded-xl p-1.5 focus-within:ring-1 focus-within:ring-accent/50 focus-within:border-accent/50 transition-all shadow-sm">
           <Input 
+            ref={forwardedRef}
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    handleSubmit(e);
+                }
+            }}
             placeholder="Ask AI about your code..." 
             className="flex-1 bg-transparent border-none focus-visible:ring-0 text-sm h-auto min-h-[40px] py-2.5 px-3 resize-none"
             autoComplete="off"
@@ -562,6 +677,60 @@ export default function ChatPanel({ messages, onSendMessage, onCommand, onStopGe
             </Button>
           )}
         </form>
+        
+        <AnimatePresence>
+          {queuedMessages.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="mt-2 space-y-1"
+            >
+              <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
+                Queued Messages ({queuedMessages.length})
+              </div>
+              {queuedMessages.map((msg, index) => (
+                <motion.div
+                  key={index}
+                  layout
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.2 }}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/plain", index.toString());
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const draggedIndex = parseInt(e.dataTransfer.getData("text/plain"));
+                    const droppedIndex = index;
+
+                    if (draggedIndex === droppedIndex) return;
+
+                    const newOrder = [...queuedMessages];
+                    const [draggedItem] = newOrder.splice(draggedIndex, 1);
+                    newOrder.splice(droppedIndex, 0, draggedItem);
+                    onReorderQueuedMessages(newOrder);
+                  }}
+                  className="flex items-center justify-between p-2 rounded-md bg-muted/40 border border-border/50 text-xs text-foreground/80 cursor-grab active:cursor-grabbing"
+                >
+                  <span className="flex-1 truncate">{msg}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-red-400"
+                    onClick={() => onRemoveQueuedMessage(index)}
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="text-[10px] text-center mt-2 text-muted-foreground/40 select-none">
             AI can make mistakes. Review generated code.
         </div>

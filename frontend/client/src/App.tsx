@@ -74,7 +74,21 @@ function App() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [hasCheckedOllama, setHasCheckedOllama] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const handleQueueMessage = (message: string) => {
+    setQueuedMessages((prev) => [...prev, message]);
+  };
 
+  const handleRemoveQueuedMessage = (index: number) => {
+    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleReorderQueuedMessages = (newOrder: string[]) => {
+    setQueuedMessages(newOrder);
+  };
+
+
+  const chatInputRef = useRef<HTMLInputElement>(null);
   const activeFileContent = openFiles.find((f) => f.path === activeFile)?.content || "";
   const chatSocket = useRef<WebSocket | null>(null);
 
@@ -668,9 +682,34 @@ function App() {
     ]);
   };
 
+  const [rightPanelSize, setRightPanelSize] = useState<number | undefined>(25);
   const handleMonacoReady = (getDiagnostics: (code: string, language: string) => Promise<any[]>) => {
     setGetDiagnostics(() => getDiagnostics);
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'i') {
+        e.preventDefault();
+        if (rightPanelSize === 0) {
+          setRightPanelSize(25);
+        }
+        chatInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [rightPanelSize]);
+  useEffect(() => {
+    if (!isChatLoading && queuedMessages.length > 0) {
+      const nextMessage = queuedMessages[0];
+      handleSendMessage(nextMessage);
+      handleRemoveQueuedMessage(0);
+    }
+  }, [isChatLoading, queuedMessages]);
 
   const handleTerminalCommand = (command: string) => {
     // TODO: Implement sending command to active terminal
@@ -847,8 +886,9 @@ function App() {
               <ResizableHandle className="bg-border hover:bg-accent transition-colors" />
 
               {/* Right Sidebar: AI Chat */}
-              <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
+              <ResizablePanel defaultSize={25} minSize={20} maxSize={40} size={rightPanelSize} onResize={setRightPanelSize}>
                   <ChatPanel 
+                      forwardedRef={chatInputRef}
                       messages={chatMessages} 
                       onSendMessage={handleSendMessage} 
                       onCommand={handleCommand}
@@ -863,9 +903,13 @@ function App() {
                       hasCheckedOllama={hasCheckedOllama}
                       onApplyCode={handleApplyCode}
                       onToolAction={handleToolAction}
-                      onTerminalCommand={handleTerminalCommand}
+      onTerminalCommand={handleTerminalCommand}
                       onModelChange={handleModelChange}
                       onContextCommand={handleContextCommand}
+                      queuedMessages={queuedMessages}
+                      onQueueMessage={handleQueueMessage}
+                      onRemoveQueuedMessage={handleRemoveQueuedMessage}
+                      onReorderQueuedMessages={handleReorderQueuedMessages}
                   />
               </ResizablePanel>
           </ResizablePanelGroup>

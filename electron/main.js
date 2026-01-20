@@ -2,7 +2,9 @@ const { app, BrowserWindow } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const url = require('url');
-const { dialog, ipcMain } = require('electron')
+const { dialog, ipcMain } = require('electron');
+const fs = require('fs');
+
 // If the app is NOT packaged (exe/dmg/appimage), then we are in Dev mode.
 const isDev = !app.isPackaged;
 
@@ -103,4 +105,19 @@ ipcMain.handle('dialog:openFiles', async () => {
   if (canceled) return null;
   return filePaths;
 })
+
+ipcMain.handle('dialog:saveFile', async (event, defaultName, content) => {
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    defaultPath: defaultName
+  });
+  if (canceled) {
+    return { success: false, error: 'Dialog canceled' };
+  }
+  try {
+    fs.writeFileSync(filePath, content);
+    return { success: true, path: filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
 // app.on('will-quit', killPythonBackend);

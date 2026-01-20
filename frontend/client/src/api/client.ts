@@ -84,6 +84,11 @@ export const fs = {
     const { data } = await apiClient.post("/fs/watch", { path });
     return data;
   },
+
+  showSaveDialog: async (defaultName: string): Promise<{ filePath: string | null }> => {
+    const { data } = await apiClient.post("/fs/save-dialog", { default_name: defaultName });
+    return data;
+  },
 };
 
 export const rag = {

@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('fileSystem', {
   // Invoke Native "open files" dialog
   selectFiles: () => ipcRenderer.invoke('dialog:openFiles'),
 
+  // Invoke Native "save file" dialog
+  saveFile: (defaultName, content) => ipcRenderer.invoke('dialog:saveFile', defaultName, content),
+
   // Listen for Menu Commands (eg File -> save)
   onSaveCommand: (callback) => ipcRenderer.on('menu:save', callback)
 });
