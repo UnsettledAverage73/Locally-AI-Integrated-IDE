@@ -39,7 +39,6 @@ export default function Terminal({ sessionId }: TerminalProps) {
   const xtermRef = useRef<XTerm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const [isTerminated, setIsTerminated] = useState(false);
   const [isFixItModalOpen, setIsFixItModalOpen] = useState(false);
   const [errorDetails, setErrorDetails] = useState<ErrorDetails | null>(null);
   const [fixDiff, setFixDiff] = useState("");
@@ -67,7 +66,6 @@ export default function Terminal({ sessionId }: TerminalProps) {
         wsRef.current = ws;
 
         ws.onopen = () => {
-            setIsTerminated(false);
             term.write('\r\n\x1b[32m$ Connected to LocalDev Shell\x1b[0m\r\n');
             // Send initial resize command to match terminal dimensions
             const { cols, rows } = term;
@@ -92,18 +90,16 @@ export default function Terminal({ sessionId }: TerminalProps) {
         };
 
         ws.onclose = () => {
-            setIsTerminated(true);
-            term.write('\r\n\x1b[31m$ Connection Closed\x1b[0m\r\n');
+            term.write('\r\n\x1b[31m$ Connection Closed. Reconnecting...\x1b[0m\r\n');
+            setTimeout(connectTerminal, 1000); // Keep auto-reconnect
         };
 
         ws.onerror = (err) => {
             console.error("Terminal WebSocket error:", err);
-            term.write('\r\n\x1b[31m$ Connection Error\x1b[0m\r\n');
-            setIsTerminated(true);
+            term.write('\r\n\x1b[31m$ Connection Error. Check backend.\x1b[0m\r\n');
         };
     } catch (e) {
         console.error("Failed to connect:", e);
-        setIsTerminated(true);
     }
   }, [sessionId]);
 
@@ -180,13 +176,6 @@ export default function Terminal({ sessionId }: TerminalProps) {
     };
   }, []); // Empty dependency array ensures this runs once on mount
 
-  const handleRestart = () => {
-      if (xtermRef.current) {
-          xtermRef.current.reset();
-      }
-      connectTerminal();
-  };
-
   const handleProposeFix = async () => {
       if (!errorDetails) return;
       setIsFixItModalOpen(true);
@@ -234,26 +223,9 @@ export default function Terminal({ sessionId }: TerminalProps) {
                         Fix It
                     </Button>
                 )}
-                {isTerminated && (
-                    <span className="text-red-500 flex items-center gap-1">
-                        ● Disconnected
-                    </span>
-                )}
             </div>
         </div>
         <div className="flex-1 p-2 overflow-hidden relative" ref={terminalRef}>
-            {isTerminated && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <Button 
-                        variant="secondary" 
-                        onClick={handleRestart}
-                        className="gap-2"
-                    >
-                        <RefreshCw className="h-4 w-4" />
-                        Restart Session
-                    </Button>
-                </div>
-            )}
         </div>
         <FixItModal 
             isOpen={isFixItModalOpen}

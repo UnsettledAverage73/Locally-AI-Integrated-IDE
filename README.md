@@ -73,7 +73,7 @@ docker run -d -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
 5.  **Pull Required Models**
     Ensure Ollama is running (`ollama serve` or via Docker), then pull the models:
     ```bash
-    ollama pull deepseek-coder
+    ollama pull qwen2.5:0.5b
     ollama pull nomic-embed-text
     ```
 

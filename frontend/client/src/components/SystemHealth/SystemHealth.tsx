@@ -1,14 +1,25 @@
 import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, Zap, AlertTriangle, BarChart } from "lucide-react";
-import { apiClient } from "@/api/client"; 
+import { DollarSign, Zap, AlertTriangle, BarChart, Server, Database } from "lucide-react";
+import { apiClient, llm } from "@/api/client"; 
 import SystemResources from "../SystemResources";
+import { useSettings } from "@/context/SettingsContext";
+import { Badge } from "@/components/ui/badge";
 
 interface OpsStats {
   avg_latency: number;
   total_requests: number;
   error_rate: number;
   estimated_cost_saved: number;
+}
+
+interface ModelDetails {
+    name: string;
+    size: number;
+    details: {
+        family: string;
+        parameter_size: string;
+    }
 }
 
 const StatCard = ({ title, value, icon, unit = "" }) => (
@@ -26,10 +37,72 @@ const StatCard = ({ title, value, icon, unit = "" }) => (
   </Card>
 );
 
+const EnterpriseResources = () => {
+    const [models, setModels] = useState<ModelDetails[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchModelDetails = async () => {
+            setLoading(true);
+            try {
+                const modelList = await llm.models();
+                const modelDetailsPromises = modelList.models.map(async (modelName) => {
+                    const info = await llm.showModelInfo(modelName);
+                    return {
+                        name: info.model_name,
+                        size: info.size,
+                        details: info.details,
+                    };
+                });
+                const detailedModels = await Promise.all(modelDetailsPromises);
+                setModels(detailedModels);
+            } catch (e) {
+                console.error("Failed to fetch enterprise model details", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchModelDetails();
+    }, []);
+
+    const formatBytes = (bytes: number, decimals = 2) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    if (loading) {
+        return <p className="text-muted-foreground text-sm">Loading remote models...</p>
+    }
+
+    return (
+        <div className="space-y-3">
+            {models.map(model => (
+                <Card key={model.name} className="bg-card/50 p-3">
+                    <div className="flex justify-between items-start">
+                        <div className="space-y-1">
+                            <p className="text-sm font-semibold flex items-center gap-2"><Database className="w-4 h-4" /> {model.name}</p>
+                            <div className="flex gap-2 text-xs text-muted-foreground">
+                                <Badge variant="outline">{model.details?.family || 'unknown'}</Badge>
+                                <Badge variant="outline">{model.details?.parameter_size || 'N/A'}</Badge>
+                            </div>
+                        </div>
+                        <p className="text-sm font-mono">{formatBytes(model.size)}</p>
+                    </div>
+                </Card>
+            ))}
+        </div>
+    )
+}
+
 export default function SystemHealth() {
   const [stats, setStats] = useState<OpsStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { aiMode } = useSettings();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -59,12 +132,11 @@ export default function SystemHealth() {
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         
-        {/* Hardware Section */}
         <section>
             <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                Hardware Resources
+                {aiMode === 'enterprise' ? 'Enterprise Resources' : 'Local Hardware'}
             </h3>
-            <SystemResources />
+            {aiMode === 'enterprise' ? <EnterpriseResources /> : <SystemResources />}
         </section>
 
         {/* LLM Ops Section */}
@@ -105,9 +177,11 @@ export default function SystemHealth() {
         </section>
 
         <div className="text-xs text-muted-foreground pt-4 border-t border-border/50">
-            Stats refresh automatically. This dashboard provides real-time observability into the performance and cost-efficiency of the locally-run models.
+            {aiMode === 'local' && 'Hardware stats refresh automatically. '}
+            LLM Ops provides real-time observability into model performance.
         </div>
       </div>
     </div>
   );
 }
+

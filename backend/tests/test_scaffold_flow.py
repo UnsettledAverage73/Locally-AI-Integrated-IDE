@@ -54,7 +54,7 @@ async def test_scaffold_flow():
 
         # Execute
         messages = [{"role": "user", "content": "Create a project named test_scaffold_project"}]
-        response = await chat_with_tools("deepseek-coder", messages)
+        response = await chat_with_tools("qwen2.5:0.5b", messages)
 
         # Verification 1: Check if response is correct
         assert response == "I have created the project for you."

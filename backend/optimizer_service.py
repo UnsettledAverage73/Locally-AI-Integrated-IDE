@@ -3,7 +3,7 @@ import ollama
 from services.fixer_service import fixer_service
 
 class OptimizerService:
-    def optimize_file(self, file_path: str, instruction: str = "Fix bugs and optimize code", model: str = "deepseek-coder"):
+    def optimize_file(self, file_path: str, instruction: str = "Fix bugs and optimize code", model: str = "qwen2.5:0.5b"):
         # 1. READ the file directly from disk
         if not os.path.exists(file_path):
             return {"error": "File not found"}
@@ -28,7 +28,7 @@ class OptimizerService:
         IMPORTANT: Output ONLY the full valid code block. No markdown, no explanations.
         """
 
-        # 3. CALL the AI (Use a smart model like deepseek-coder)
+        # 3. CALL the AI (Use a smart model like qwen2.5:0.5b)
         try:
             response = ollama.chat(
                 model=model, 

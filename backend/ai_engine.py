@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from services.llm_service import chat_with_tools, execute_tool_and_continue
 
-async def run_autonomous_agent(prompt: str, model: str = "deepseek-coder"):
+async def run_autonomous_agent(prompt: str, model: str = "qwen2.5:0.5b"):
     """
     Runs the AI in an autonomous agentic loop.
     It automatically approves and executes tool calls until the task is done.
@@ -65,7 +65,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     prompt = sys.argv[1]
-    model = "deepseek-coder"
+    model = "qwen2.5:0.5b"
     if "--model" in sys.argv:
         try:
             idx = sys.argv.index("--model")

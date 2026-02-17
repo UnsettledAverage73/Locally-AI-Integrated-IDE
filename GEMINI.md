@@ -23,7 +23,7 @@ The application follows a multi-process architecture:
 - **Ollama**: Installed and running (`ollama serve`).
 - **Models**: Pull required models:
     ```bash
-    ollama pull deepseek-coder
+    ollama pull qwen2.5:0.5b
     ollama pull nomic-embed-text
     ```
 
@@ -87,5 +87,5 @@ npm run build
 ## ⚠️ Common Issues & Troubleshooting
 
 -   **Ollama Connection**: Ensure `ollama serve` is running before starting the app.
--   **Model Errors**: If the chat fails, verify you have pulled `deepseek-coder` and `nomic-embed-text`.
+-   **Model Errors**: If the chat fails, verify you have pulled `qwen2.5:0.5b` and `nomic-embed-text`.
 -   **Backend Startup**: If the backend fails to spawn, check `backend/requirements.txt` installation and virtual environment activation.

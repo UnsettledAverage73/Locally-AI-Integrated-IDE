@@ -47,7 +47,7 @@ pull_model_if_missing() {
     if ! curl -s http://127.0.0.1:11434/api/tags | grep -q "name":"$MODEL"; then
          # Try with :latest if not found? No, exact match logic or simple grep
          # Simple grep on JSON response: "name":"modelname"
-         # But the model name in JSON might be "deepseek-coder:latest"
+         # But the model name in JSON might be "qwen2.5:0.5b:latest"
          
          # Fallback to CLI which is easier to read for humans but we are scripting.
          # Let's trust the CLI list
@@ -62,5 +62,5 @@ pull_model_if_missing() {
     fi
 }
 
-pull_model_if_missing "deepseek-coder"
+pull_model_if_missing "qwen2.5:0.5b"
 pull_model_if_missing "nomic-embed-text"

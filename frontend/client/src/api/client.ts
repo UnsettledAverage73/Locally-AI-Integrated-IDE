@@ -123,7 +123,7 @@ export const llm = {
     
     // Get temperature and model from profile settings
     const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
-    const model = localStorage.getItem("ai_model") || "deepseek-coder";
+    const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
     
     const { data } = await apiClient.post("/ollama/chat", { 
         model, 
@@ -133,20 +133,20 @@ export const llm = {
     return data;
   },
   executeTool: async (messages: ChatMessage[], tool_call: any, approved: boolean): Promise<ChatResponse> => {
-    const model = localStorage.getItem("ai_model") || "deepseek-coder";
+    const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
     const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
     
     const { data } = await apiClient.post("/ollama/tool/execute", {
         model,
         messages,
-        tool_call,
+        tool_call: tool_call,
         approved,
         options: { temperature: temp }
     });
     return data;
   },
   complete: async (prefix: string, suffix: string): Promise<{ content: string }> => {
-    const model = localStorage.getItem("ai_model") || "deepseek-coder";
+    const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
     const { data } = await apiClient.post("/ollama/complete", { 
         model, 
         prefix, 
@@ -164,7 +164,12 @@ export const llm = {
   },
   models: async (): Promise<{ models: string[] }> => {
     const { data } = await apiClient.get("/ollama/models");
-    return data;
+    if (data && Array.isArray(data.models)) {
+      // The backend returns a simple array of strings, so we can use it directly.
+      return { models: data.models };
+    }
+    // Return an empty array if the structure is not what we expect.
+    return { models: [] };
   },
   pullModel: async (model: string): Promise<{ status: string }> => {
     if (USE_MOCKS) {
@@ -178,10 +183,18 @@ export const llm = {
     if (USE_MOCKS) return { status: "success" };
     const { data } = await apiClient.delete(`/ollama/models/${model}`);
     return data;
+  },
+  showModelInfo: async (modelName: string): Promise<any> => {
+    const { data } = await apiClient.get(`/ollama/show/${encodeURIComponent(modelName)}`);
+    return data;
+  },
+  updateAIHost: async (host: string): Promise<{ status: string, host: string, available: boolean }> => {
+    const { data } = await apiClient.post("/config/ai-host", { host });
+    return data;
   }
 };
 
-  export const system = {
+export const system = {
       getStats: async (): Promise<{ 
           ram_total_gb: number; 
           ram_available_gb: number; 
@@ -284,7 +297,7 @@ export const search = {
 };
 
 export const optimizer = {
-    optimizeFile: async (path: string, instruction: string, model: string = "deepseek-coder"): Promise<{ status: string; message: string }> => {
+    optimizeFile: async (path: string, instruction: string, model: string = "qwen2.5:0.5b"): Promise<{ status: string; message: string }> => {
         if (USE_MOCKS) {
             await new Promise(resolve => setTimeout(resolve, 2000));
             return { status: "success", message: "Mock optimization complete" };
@@ -304,7 +317,7 @@ export const optimizer = {
         return data;
     },
     editSelection: async (filePath: string, selectedCode: string, instruction: string): Promise<{ modified_code: string }> => {
-        const model = localStorage.getItem("ai_model") || "deepseek-coder";
+        const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
         const { data } = await apiClient.post("/fs/edit_selection", { file_path: filePath, selected_code: selectedCode, instruction, model });
         return data;
     }

@@ -21,10 +21,10 @@ interface ModelOption {
 }
 
 const KNOWN_MODELS: ModelOption[] = [
-  { name: "qwen2.5:0.5b", label: "Qwen 2.5 (0.5B) - Tiny/Fast", size_gb: 0.4, min_ram_gb: 2 },
+  { name: "qwen2.5:0.5b2.5:0.5b", label: "Qwen 2.5 (0.5B) - Tiny/Fast", size_gb: 0.4, min_ram_gb: 2 },
   { name: "gemma:2b", label: "Gemma (2B) - Light", size_gb: 1.5, min_ram_gb: 4 },
   { name: "llama3.2:3b", label: "Llama 3.2 (3B) - Balanced", size_gb: 2.0, min_ram_gb: 8 },
-  { name: "deepseek-coder", label: "DeepSeek Coder (Standard)", size_gb: 4.0, min_ram_gb: 8 },
+  { name: "qwen2.5:0.5b", label: "DeepSeek Coder (Standard)", size_gb: 4.0, min_ram_gb: 8 },
   { name: "llama3:8b", label: "Llama 3 (8B) - Smart", size_gb: 4.7, min_ram_gb: 12 },
   { name: "mistral", label: "Mistral (7B)", size_gb: 4.1, min_ram_gb: 12 },
   { name: "llama3:70b", label: "Llama 3 (70B) - Genius", size_gb: 40, min_ram_gb: 48 },
@@ -33,6 +33,7 @@ const KNOWN_MODELS: ModelOption[] = [
 export default function ModelSettings() {
   const { toast } = useToast();
   const { startDownload, isDownloading, modelName: downloadingModelName, progress } = useDownload();
+
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [systemStats, setSystemStats] = useState<{
     ram_total_gb: number;
@@ -42,15 +43,21 @@ export default function ModelSettings() {
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState("balanced");
-  const [activeModel, setActiveModel] = useState("deepseek-coder");
+  const [activeModel, setActiveModel] = useState("qwen2.5:0.5b");
   const [selectedModel, setSelectedModel] = useState<any | null>(null);
 
   useEffect(() => {
     loadData();
     const savedProfile = localStorage.getItem("ai_profile") || "balanced";
     setProfile(savedProfile);
-    const savedModel = localStorage.getItem("ai_model") || "deepseek-coder";
+    const savedModel = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
     setActiveModel(savedModel);
+
+    const handleHostChanged = () => loadData();
+    window.addEventListener('ollamaHostChanged', handleHostChanged);
+    return () => {
+      window.removeEventListener('ollamaHostChanged', handleHostChanged);
+    };
   }, [isDownloading]);
 
   const loadData = async () => {
@@ -60,6 +67,7 @@ export default function ModelSettings() {
       setInstalledModels(modelsData.models);
     } catch (error) {
       console.error("Failed to load models", error);
+      setInstalledModels([]);
       toast({
         title: "Model Error",
         description: "Could not list Ollama models.",
@@ -110,7 +118,7 @@ export default function ModelSettings() {
 
   const handleShowInfo = async (modelName: string) => {
     try {
-      const modelInfo = await llm.show(modelName);
+      const modelInfo = await llm.showModelInfo(modelName);
       setSelectedModel(modelInfo);
     } catch (error) {
       toast({
@@ -167,7 +175,7 @@ export default function ModelSettings() {
                 </SelectTrigger>
                 <SelectContent>
                     {installedModels.length === 0 ? (
-                        <SelectItem value="deepseek-coder" disabled>No models installed</SelectItem>
+                        <SelectItem value="qwen2.5:0.5b" disabled>No models installed</SelectItem>
                     ) : (
                         installedModels.map(model => (
                             <SelectItem key={model} value={model}>{model}</SelectItem>

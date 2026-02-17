@@ -12,6 +12,7 @@ import psutil
 from telemetry import telemetry
 import time
 import httpx
+import uuid
 
 # Platform specific imports
 if sys.platform != "win32":
@@ -22,8 +23,7 @@ if sys.platform != "win32":
     import select
 
 # --- SERVICES ---
-from services.OllamaService import OllamaService
-from services.RAGService import RAGService
+from services import OllamaService, RAGService
 from services.resource_monitor import get_system_resources as get_full_system_resources
 from bedrock_service import BedrockService
 from git_service import GitService
@@ -32,8 +32,7 @@ from services.llm_service import chat_with_tools, execute_tool_and_continue, str
 from services.model_loader import ensure_nomic_model
 from routers import files, search
 from file_watcher import start_watcher
-from mcp_server.context_search import context_search
-import uuid
+from services.chat_history import history_service
 
 # --- WEBSOCKET MANAGER ---
 class ConnectionManager:
@@ -57,16 +56,18 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# --- TERMINAL MANAGER ---
 class TerminalManager:
     def __init__(self):
-        self.sessions: Dict[str, Any] = {}
+        self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.cleanup_interval_seconds = 300  # Check every 5 minutes
+        self.session_timeout_seconds = 1800   # 30 minutes of inactivity
 
     def create_session(self) -> str:
         session_id = str(uuid.uuid4())
         
         if sys.platform == "win32":
-            # Mock session for Windows
-            self.sessions[session_id] = {"pid": None, "master_fd": None}
+            self.sessions[session_id] = {"pid": None, "master_fd": None, "last_active": time.time()}
             return session_id
 
         master_fd, slave_fd = pty.openpty()
@@ -82,30 +83,47 @@ class TerminalManager:
             os.execv(shell, [shell])
         else: # Parent process
             os.close(slave_fd)
-            self.sessions[session_id] = {"pid": pid, "master_fd": master_fd}
+            self.sessions[session_id] = {"pid": pid, "master_fd": master_fd, "last_active": time.time()}
             print(f"Terminal session {session_id} created with pid {pid}")
             return session_id
+
+    def update_session_activity(self, session_id: str):
+        if session_id in self.sessions:
+            self.sessions[session_id]["last_active"] = time.time()
 
     def remove_session(self, session_id: str):
         if session_id in self.sessions:
             session = self.sessions.pop(session_id)
             if session["pid"] is not None:
                 try:
-                    os.kill(session["pid"], 9)
+                    os.killpg(os.getpgid(session["pid"]), 9) 
                     os.waitpid(session["pid"], 0)
-                    print(f"Terminal session {session_id} killed.")
-                except OSError:
-                    pass
+                    print(f"Terminal session {session_id} (pid: {session['pid']}) killed.")
+                except (ProcessLookupError, OSError):
+                    pass # Process might have already exited
             if session["master_fd"] is not None:
                 try:
                     os.close(session["master_fd"])
                 except OSError:
                     pass
 
+    async def cleanup_inactive_sessions(self):
+        while True:
+            await asyncio.sleep(self.cleanup_interval_seconds)
+            current_time = time.time()
+            sessions_to_remove = [
+                sid for sid, data in self.sessions.items()
+                if current_time - data["last_active"] > self.session_timeout_seconds
+            ]
+            for session_id in sessions_to_remove:
+                print(f"Cleaning up inactive terminal session {session_id}")
+                self.remove_session(session_id)
+
 terminal_manager = TerminalManager()
 
 # --- LIFESPAN MANAGER ---
 file_observer = None
+lsp_process = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -131,29 +149,116 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Failed to start file watcher: {e}")
 
+    # 3. Start Terminal Session Cleanup Task
+    cleanup_task = asyncio.create_task(terminal_manager.cleanup_inactive_sessions())
+    print("🧹 Terminal session cleanup task started.")
+
+    # 4. Start LSP Process
+    global lsp_process
+    try:
+        lsp_process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "backend.language_server",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        print("💡 Language Server Process started.")
+    except Exception as e:
+        print(f"⚠️ Failed to start LSP process: {e}")
+
+
     yield
 
     # --- SHUTDOWN LOGIC ---
     print("🛑 Shutting down...")
+    
     # Clean up all active terminal sessions
     for session_id in list(terminal_manager.sessions.keys()):
         terminal_manager.remove_session(session_id)
-        
+
     if file_observer:
         print("🛑 Stopping File Watcher...")
         file_observer.stop()
         file_observer.join()
+    
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        print("🧹 Terminal session cleanup task cancelled.")
+    
+    if lsp_process and lsp_process.returncode is None:
+        print("🛑 Stopping Language Server Process...")
+        lsp_process.kill()
+        await lsp_process.wait()
 
 app = FastAPI(lifespan=lifespan)
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"🔥 UNHANDLED ERROR: {exc}")
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An unexpected server error occurred.", "detail": str(exc)},
+    )
 
 # --- CONFIGURATION ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://0.0.0.0:5000",
+        "http://0.0.0.0:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- STATS ENGINE (SOVEREIGN OPERATIONS) ---
+stats = {
+    "total_requests": 0,
+    "total_latency_ms": 0,
+    "errors": 0,
+    "tokens_generated": 0
+}
+
+# Cost of GPT-4 per 1k tokens (approx $0.03 for input+output)
+GPT4_COST_PER_TOKEN = 0.00003 
+
+@app.get("/api/stats")
+async def get_stats():
+    # Calculate averages on the fly
+    avg_latency = 0
+    if stats["total_requests"] > 0:
+        avg_latency = stats["total_latency_ms"] / stats["total_requests"]
+    
+    # Calculate Cost Saved (The "Pitch" Metric)
+    money_saved = stats["tokens_generated"] * GPT4_COST_PER_TOKEN
+
+    # Calculate error rate
+    error_rate = 0
+    if stats["total_requests"] > 0:
+        error_rate = (stats["errors"] / stats["total_requests"]) * 100
+
+    return {
+        "requests": stats["total_requests"],
+        "avg_latency": int(avg_latency),
+        "error_rate": round(error_rate, 1), 
+        "cost_saved": f"${money_saved:.2f}"
+    }
 
 # --- APP STATE (IN-MEMORY SECURITY) ---
 app_state = {
@@ -180,23 +285,47 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     model: str
     messages: List[Dict[str, Any]]
+    session_id: str | None = None
     options: Dict[str, Any] | None = None
+
+class CreateSessionRequest(BaseModel):
+    title: str | None = "New Chat"
+    model: str | None = "qwen2.5:0.5b"
+
+class MemoryRequest(BaseModel):
+    content: str
+    category: str
+    session_id: str
+
+class ConfigRequest(BaseModel):
+    mode: str
+    aws_access_key: Optional[str] = None
+    aws_secret_key: Optional[str] = None
+    aws_session_token: Optional[str] = None
+    aws_region: Optional[str] = None
+
+class EnvConfigRequest(BaseModel):
+    github_token: Optional[str] = None
+
+class AIHostRequest(BaseModel):
+    host: str
+
+class GitStageRequest(BaseModel):
+    path: str
+
+class GitCommitRequest(BaseModel):
+    message: str
+
+class ExecuteToolRequest(BaseModel):
+    model: str
+    messages: List[Dict[str, Any]]
+    tool_call: Dict[str, Any]
 
 class CompletionRequest(BaseModel):
     model: str
     prefix: str
     suffix: str
-    options: Dict[str, Any] | None = None
-
-class ConfigRequest(BaseModel):
-    mode: str
-    aws_access_key: str | None = None
-    aws_secret_key: str | None = None
-    aws_session_token: str | None = None
-    aws_region: str | None = "us-east-1"
-
-class EnvConfigRequest(BaseModel):
-    github_token: str | None = None
+    options: Optional[Dict[str, Any]] = None
 
 class GenerateEmbeddingRequest(BaseModel):
     text: str
@@ -205,60 +334,78 @@ class IndexFileRequest(BaseModel):
     file_path: str
     content: str
 
-class GetContextRequest(BaseModel):
-    query: str
-    current_file: str | None = None
-
 class FileOperationRequest(BaseModel):
     path: str
 
-class WriteFileRequest(FileOperationRequest):
+class GetContextRequest(BaseModel):
+    query: str
+    current_file: str
+
+class WriteFileRequest(BaseModel):
+    path: str
     content: str
 
 class DiffRequest(BaseModel):
     original_content: str
     proposed_content: str
-    file_path: str
-
-class GitStageRequest(BaseModel):
-    path: str
-
-class GitCommitRequest(BaseModel):
-    message: str
 
 class OptimizeRequest(BaseModel):
     file_path: str
     instruction: str
-    model: str | None = "deepseek-coder"
+    model: str
 
 class EditCodeRequest(BaseModel):
     file_path: str
-    selected_code: str
+    original_content: str
     instruction: str
-    model: str | None = "deepseek-coder"
+    start_line: int
+    end_line: int
+    start_char: int
+    end_char: int
 
 class ProposeFixRequest(BaseModel):
     file_path: str
     line_number: int
     error_message: str
 
-class ExecuteToolRequest(BaseModel):
-    model: str
-    messages: List[Dict[str, Any]]
-    tool_call: Dict[str, Any]
-    approved: bool
-    options: Dict[str, Any] | None = None
 
-class ContextSearchRequest(BaseModel):
-    context_type: str
-    search_term: str
+# --- CHAT HISTORY ENDPOINTS ---
+
+@app.get("/chat/sessions")
+async def list_sessions():
+    return history_service.list_sessions()
+
+@app.get("/chat/sessions/{session_id}")
+async def get_session(session_id: str):
+    session = history_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+@app.post("/chat/sessions")
+async def create_session(request: CreateSessionRequest):
+    session_id = history_service.create_session(request.title, request.model)
+    return {"session_id": session_id}
+
+@app.delete("/chat/sessions/{session_id}")
+async def delete_session(session_id: str):
+    history_service.delete_session(session_id)
+    return {"status": "success"}
+
+@app.get("/chat/memories")
+async def get_memories():
+    return history_service.get_memories()
+
+@app.post("/chat/memories")
+async def add_memory(request: MemoryRequest):
+    history_service.add_memory(request.content, request.category, request.session_id)
+    return {"status": "success"}
 
 # --- ENDPOINTS ---
 
-
 @app.get("/")
 async def read_root():
-    return {"message": "LocalDev Backend is running!"}
+    return {"message": "AVERAGE Backend is running!"}
 
 @app.post("/config/update")
 async def update_config(request: ConfigRequest):
@@ -324,6 +471,14 @@ async def get_env_status():
         "has_github_token": bool(token) and len(token) > 0,
         # Do not return the actual token for security, just presence
     }
+
+@app.post("/config/ai-host")
+async def update_ai_host(request: AIHostRequest):
+    try:
+        success = await ollama_service.update_host(request.host)
+        return {"status": "success" if success else "error", "host": ollama_service.host, "available": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- GIT ENDPOINTS ---
 
@@ -422,6 +577,15 @@ async def ollama_models():
     models = await ollama_service.list_models()
     return {"models": models}
 
+@app.get("/ollama/show/{model_name:path}")
+async def ollama_show(model_name: str):
+    try:
+        info = await ollama_service.show_model_info(model_name)
+        return info
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found or error: {str(e)}")
+
+
 class PullModelRequest(BaseModel):
     model: str
 
@@ -471,13 +635,45 @@ async def ollama_delete(model_name: str):
 async def get_system_resources():
     return get_full_system_resources()
 
-@app.post("/mcp/context-search")
-async def mcp_context_search(request: ContextSearchRequest):
+@app.post("/api/benchmark")
+async def run_benchmark(request: Dict[str, Any] = None):
+    """Runs a performance benchmark on the local LLM."""
+    model = (request or {}).get("model", "qwen2.5-coder:1.5b")
+    prompt = "Write a Python function to calculate the Fibonacci sequence."
+    endpoint = "http://localhost:11434/api/generate"
+    
+    start_time = time.time()
     try:
-        context = await context_search(f"@{request.context_type} {request.search_term}")
-        return {"context": context}
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(endpoint, json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False
+            })
+            resp.raise_for_status()
+            data = resp.json()
+            end_time = time.time()
+            
+            total_time = end_time - start_time
+            content = data.get("response", "")
+            # Rough token estimate (words + punctuations)
+            token_count = len(content.split()) 
+            tps = token_count / total_time if total_time > 0 else 0
+            
+            verdict = "EXCELLENT" if tps > 20 else "GOOD" if tps > 10 else "SLOW"
+            
+            return {
+                "model": model,
+                "total_time": round(total_time, 2),
+                "tokens_per_second": round(tps, 2),
+                "token_count": token_count,
+                "verdict": verdict,
+                "status": "success"
+            }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "error", "message": str(e)}
+
+@app.post("/mcp/context-search")
 
 @app.post("/ollama/chat")
 async def ollama_chat(request: ChatRequest):
@@ -505,6 +701,25 @@ async def ollama_chat(request: ChatRequest):
                 raise HTTPException(status_code=500, detail=response["error"])
         else:
             print("💻 Using Local Brain (Ollama with Tools)...")
+            
+            # --- RAG RETRIEVAL ---
+            # Extract the user's last query
+            last_user_msg = request.messages[-1]["content"]
+            
+            # Fetch relevant context from LanceDB
+            rag_context = await rag_service.get_context(last_user_msg)
+            
+            if rag_context:
+                print(f"📚 RAG Context Found ({len(rag_context)} chars)")
+                context_msg = f"\n\n=== RELEVANT CODEBASE CONTEXT ===\n{rag_context}\n=================================\n"
+                
+                # Find existing system message
+                system_msg = next((m for m in request.messages if m["role"] == "system"), None)
+                if system_msg:
+                    system_msg["content"] += context_msg
+                else:
+                    request.messages.insert(0, {"role": "system", "content": f"You are a helpful AI assistant.{context_msg}"})
+            
             response = await chat_with_tools(
                 request.model, request.messages, request.options
             )
@@ -513,8 +728,30 @@ async def ollama_chat(request: ChatRequest):
         if response and not response.get("error"):
             user_message = request.messages[-1]["content"]
             assistant_message = response.get("content", "")
+            
+            # --- PERSIST TO HISTORY ---
+            if request.session_id:
+                history_service.add_message(request.session_id, "user", user_message)
+                history_service.add_message(request.session_id, "assistant", assistant_message)
+                
+                # Auto-generate title if it's the first message
+                session = history_service.get_session(request.session_id)
+                if session and len(session.get("messages", [])) <= 2:
+                    title = user_message[:30] + "..." if len(user_message) > 30 else user_message
+                    history_service.update_session_title(request.session_id, title)
+
             if user_message and assistant_message:
                 await rag_service.index_chat_turn(user_message, assistant_message)
+
+        # --- UPDATE STATS ---
+        duration_ms = (time.time() - start_time) * 1000
+        stats["total_requests"] += 1
+        stats["total_latency_ms"] += duration_ms
+        
+        # Approximate tokens (4 chars ~= 1 token)
+        response_content = response.get("content", "")
+        if response_content:
+            stats["tokens_generated"] += len(response_content) / 4
 
         telemetry.log_trace(
             feature="chat",
@@ -526,6 +763,9 @@ async def ollama_chat(request: ChatRequest):
         return response
 
     except Exception as e:
+        # --- UPDATE STATS ON ERROR ---
+        stats["errors"] += 1
+
         telemetry.log_trace(
             feature="chat",
             model=request.model,
@@ -695,9 +935,48 @@ async def preview_local_file(file_path: str):
                 content=f"<html><body style='background:#1e1e1e;color:#f1fa8c;font-family:sans-serif;padding:20px;'><h2>Directory Preview</h2><p>Viewing directories is not supported. Please select an HTML or media file.</p></body></html>"
             )
 
-        return FileResponse(full_path)
+        response = FileResponse(full_path)
+        response.headers["X-Frame-Options"] = "ALLOWALL"
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/proxy")
+async def proxy_url(url: str):
+    """
+    Simple proxy to bypass X-Frame-Options for embedding.
+    """
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.get(url)
+            
+            # Create response with content type
+            content_type = resp.headers.get("content-type", "text/html")
+            response = HTMLResponse(content=resp.text, media_type=content_type)
+            
+            # Remove restrictive headers
+            response.headers["X-Frame-Options"] = "ALLOWALL" # Override
+            del response.headers["Content-Security-Policy"] # Remove
+            
+            # Simple (naive) URL rewriting to make some assets work
+            # This is not perfect but helps with basic pages
+            # We replace 'src="/' with 'src="<base_url>/'
+            # But extracting base_url correctly is key.
+            # For now, let's just return the content and see.
+            # Ideally we inject <base href="...">
+            
+            base_url = str(resp.url)
+            if not base_url.endswith("/"):
+                base_url += "/"
+                
+            # Inject base tag for relative links
+            if "<head>" in resp.text:
+                modified_content = resp.text.replace("<head>", f"<head><base href='{base_url}'>")
+                return HTMLResponse(content=modified_content, media_type=content_type)
+            
+            return response
+    except Exception as e:
+        return HTMLResponse(content=f"Proxy Error: {str(e)}", status_code=500)
 
 @app.post("/files/optimize")
 def optimize_file_endpoint(req: OptimizeRequest):
@@ -776,6 +1055,7 @@ async def terminal_websocket(websocket: WebSocket, session_id: str):
                 break
             try:
                 await websocket.send_text(output.decode(errors="replace"))
+                terminal_manager.update_session_activity(session_id)
             except:
                 break
 
@@ -783,6 +1063,7 @@ async def terminal_websocket(websocket: WebSocket, session_id: str):
         try:
             while True:
                 data = await websocket.receive_text()
+                terminal_manager.update_session_activity(session_id)
                 if data.startswith("RESIZE:"):
                     try:
                         _, params = data.split(":", 1)
@@ -807,8 +1088,8 @@ async def terminal_websocket(websocket: WebSocket, session_id: str):
     finally:
         task_read.cancel()
         task_write.cancel()
-        terminal_manager.remove_session(session_id)
-        print(f"Cleaned up terminal session {session_id}")
+        # Session is not removed on disconnect, it's handled by the cleanup task
+
 
 @app.get("/ops/stats")
 async def get_ops_stats():
@@ -835,13 +1116,48 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                 if current_task and not current_task.done():
                     current_task.cancel()
 
-                model = data.get("model", "deepseek-coder")
+                model = data.get("model", "qwen2.5:0.5b")
                 messages = data.get("messages", [])
+                session_id = data.get("session_id")
                 options = data.get("options", {})
 
                 async def run_chat():
                     try:
-                        async for chunk in stream_chat_with_tools(model, messages, rag_service, options):
+                        # --- RAG RETRIEVAL ---
+                        if messages:
+                            last_msg = messages[-1]["content"]
+                            # Only fetch context if it's a user message
+                            if messages[-1]["role"] == "user":
+                                # Save user message to history
+                                if session_id:
+                                    history_service.add_message(session_id, "user", last_msg)
+
+                                ctx = await rag_service.get_context(last_msg)
+                                if ctx:
+                                    print(f"📚 RAG Context Found ({len(ctx)} chars)")
+                                    context_msg = f"\n\n=== RELEVANT CODEBASE CONTEXT ===\n{ctx}\n=================================\n"
+                                    
+                                    system_msg = next((m for m in messages if m["role"] == "system"), None)
+                                    if system_msg:
+                                        system_msg["content"] += context_msg
+                                    else:
+                                        messages.insert(0, {"role": "system", "content": f"You are a helpful AI assistant.{context_msg}"})
+
+                        full_response = ""
+                        async for chunk in stream_chat_with_tools(model, messages, options):
+                            if chunk["type"] == "content_delta":
+                                full_response += chunk["content"]
+                            elif chunk["type"] == "complete":
+                                # Save assistant response to history
+                                if session_id:
+                                    history_service.add_message(session_id, "assistant", full_response)
+                                    
+                                    # Auto-generate title
+                                    session = history_service.get_session(session_id)
+                                    if session and len(session.get("messages", [])) <= 2:
+                                        title = messages[-1]["content"][:30] + "..." if len(messages[-1]["content"]) > 30 else messages[-1]["content"]
+                                        history_service.update_session_title(session_id, title)
+
                             await websocket.send_json(chunk)
                     except asyncio.CancelledError:
                         pass
@@ -854,7 +1170,7 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                 if current_task and not current_task.done():
                     current_task.cancel()
 
-                model = data.get("model", "deepseek-coder")
+                model = data.get("model", "qwen2.5:0.5b")
                 messages = data.get("messages", [])
                 tool_call = data.get("tool_call")
                 approved = data.get("approved")
@@ -870,6 +1186,16 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                         await websocket.send_json({"type": "error", "error": str(e)})
 
                 current_task = asyncio.create_task(run_tool())
+            
+            elif request_type == "terminal_command":
+                command = data.get("command")
+                session_id = data.get("session_id")
+                if command and session_id and session_id in terminal_manager.sessions:
+                    master_fd = terminal_manager.sessions[session_id]["master_fd"]
+                    os.write(master_fd, (command + "\n").encode())
+                else:
+                    await websocket.send_json({"type": "error", "error": "Invalid terminal command request"})
+
             else:
                 await websocket.send_json({"type": "error", "error": "Invalid request type"})
 
@@ -913,67 +1239,54 @@ async def watch_directory(request: FileOperationRequest):
 
 @app.websocket("/ws/lsp")
 async def lsp_websocket(websocket: WebSocket):
+    global lsp_process
     await websocket.accept()
-    
-    language_server_process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "backend.language_server",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+
+    if not lsp_process or lsp_process.returncode is not None:
+        await websocket.close(code=1011, reason="LSP server is not running")
+        return
 
     async def forward_to_server():
         try:
             while True:
                 data = await websocket.receive_bytes()
-                if language_server_process.stdin:
-                    language_server_process.stdin.write(data)
-                    await language_server_process.stdin.drain()
+                if lsp_process.stdin:
+                    lsp_process.stdin.write(data)
+                    await lsp_process.stdin.drain()
         except WebSocketDisconnect:
-            pass
-        finally:
-            if language_server_process.returncode is None:
-                language_server_process.kill()
+            print("LSP client disconnected.")
+        except Exception as e:
+            print(f"Error forwarding to LSP server: {e}")
 
     async def forward_to_client():
         try:
             while True:
-                if language_server_process.stdout:
-                    data = await language_server_process.stdout.read(4096)
+                if lsp_process.stdout:
+                    data = await lsp_process.stdout.read(4096)
                     if not data:
                         break
                     await websocket.send_bytes(data)
-        except Exception:
-            pass
-
-    async def log_stderr():
-        try:
-            while True:
-                if language_server_process.stderr:
-                    line = await language_server_process.stderr.readline()
-                    if not line:
-                        break
-                    print(f"LSP stderr: {line.decode().strip()}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error forwarding to LSP client: {e}")
 
     forward_to_server_task = asyncio.create_task(forward_to_server())
     forward_to_client_task = asyncio.create_task(forward_to_client())
-    log_stderr_task = asyncio.create_task(log_stderr())
 
     try:
         done, pending = await asyncio.wait(
-            {forward_to_server_task, forward_to_client_task, log_stderr_task},
+            {forward_to_server_task, forward_to_client_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
             task.cancel()
+    except Exception:
+        pass
     finally:
-        if language_server_process.returncode is None:
-            language_server_process.kill()
-        await language_server_process.wait()
+        if not forward_to_server_task.done():
+            forward_to_server_task.cancel()
+        if not forward_to_client_task.done():
+            forward_to_client_task.cancel()
+        print("Finished LSP websocket connection.")
 
 
 if __name__ == "__main__":

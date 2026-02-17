@@ -23,7 +23,7 @@ class TelemetryService:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME,
             feature_name TEXT,    -- e.g., "chat", "git_agent"
-            model_name TEXT,      -- e.g., "deepseek-coder:1.3b"
+            model_name TEXT,      -- e.g., "qwen2.5:0.5b"
             prompt_tokens INTEGER,
             completion_tokens INTEGER,
             latency_ms REAL,

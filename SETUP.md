@@ -21,7 +21,7 @@
 3. **Download AI Models**
    ```bash
    # For coding assistance
-   ollama pull deepseek-coder
+   ollama pull qwen2.5:0.5b
    
    # For embeddings (required for RAG)
    ollama pull nomic-embed-text
@@ -52,7 +52,7 @@
 3. From the project root, run: `npm install`
 4. From the `frontend` directory, run: `npm install` (for React dependencies, including markdown rendering)
 5. From the `backend` directory, create and activate a Python virtual environment, then install dependencies: `python -m venv venv && source venv/bin/activate && pip install -r requirements.txt`
-6. Pull required AI models (e.g., `ollama pull deepseek-coder`, `ollama pull nomic-embed-text`).
+6. Pull required AI models (e.g., `ollama pull qwen2.5:0.5b`, `ollama pull nomic-embed-text`).
 7. Start Ollama service: `ollama serve`
 
 ### Daily Development

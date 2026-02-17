@@ -7,7 +7,7 @@ from mcp_server.command import mcp as terminal_mcp
 from mcp_server.github import mcp as github_mcp
 from mcp_server.search import mcp as search_mcp
 from mcp_server.browser import mcp as browser_mcp
-from mcp_server.git import mcp as git_mcp
+from mcp_server.ollama import mcp as ollama_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -20,8 +20,8 @@ class MCPManager:
         gh_tools = await github_mcp.list_tools()
         search_tools = await search_mcp.list_tools()
         browser_tools = await browser_mcp.list_tools()
-        git_tools = await git_mcp.list_tools()
-        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + git_tools
+        ollama_tools = await ollama_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + ollama_tools
         
         tools = []
         for tool in all_tools:
@@ -40,6 +40,8 @@ class MCPManager:
         Executes a tool call.
         """
         try:
+            log_debug(f"🔧 Calling tool: {name} with arguments: {arguments}")
+            
             # Check filesystem tools first
             fs_tools = await filesystem_mcp.list_tools()
             if any(t.name == name for t in fs_tools):
@@ -60,10 +62,10 @@ class MCPManager:
                         if any(t.name == name for t in browser_tools):
                             result = await browser_mcp.call_tool(name, arguments)
                         else:
-                            # Check Git tools
-                            git_tools = await git_mcp.list_tools()
-                            if any(t.name == name for t in git_tools):
-                                result = await git_mcp.call_tool(name, arguments)
+                            # Check Ollama tools
+                            ollama_tools = await ollama_mcp.list_tools()
+                            if any(t.name == name for t in ollama_tools):
+                                result = await ollama_mcp.call_tool(name, arguments)
                             else:
                                 # Check Search tools
                                 result = await search_mcp.call_tool(name, arguments)
@@ -74,13 +76,23 @@ class MCPManager:
                 for content in result:
                     if hasattr(content, 'text'):
                         output.append(content.text)
+                    elif isinstance(content, dict) and 'text' in content:
+                        output.append(content['text'])
                     else:
                         output.append(str(content))
-                return "\n".join(output)
-            return str(result)
+                final_result = "\n".join(output)
+            else:
+                final_result = str(result)
+                
+            log_debug(f"✅ Tool {name} executed successfully. Result length: {len(final_result)}")
+            return final_result
 
         except Exception as e:
-            return f"Error executing tool {name}: {str(e)}"
+            error_msg = f"❌ Error executing tool {name}: {str(e)}"
+            log_debug(error_msg)
+            import traceback
+            log_debug(traceback.format_exc())
+            return error_msg
 
 mcp_manager = MCPManager()
 client = AsyncClient()
@@ -88,6 +100,8 @@ client = AsyncClient()
 def log_debug(msg):
     with open("debug_llm.log", "a") as f:
         f.write(f"{msg}\n")
+
+import re
 
 def _process_llm_response(response, messages):
     """
@@ -104,17 +118,54 @@ def _process_llm_response(response, messages):
     # If no native tool calls, check for manual JSON tool call
     if not tool_calls:
         try:
-            # Clean content (sometimes models add markdown code blocks)
-            clean_content = msg_content.strip()
-            if clean_content.startswith("```json"):
-                clean_content = clean_content[7:-3].strip()
-            elif clean_content.startswith("```"):
-                clean_content = clean_content[3:-3].strip()
-            
-            # Heuristic: Only try parsing if it looks like JSON object/list
+            # 1. Try to find JSON block using regex (handles markdown blocks or raw JSON)
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', msg_content, re.DOTALL)
+            if json_match:
+                clean_content = json_match.group(1)
+            else:
+                # Fallback to finding first { and last }
+                json_match = re.search(r'(\{.*\})', msg_content, re.DOTALL)
+                clean_content = json_match.group(1) if json_match else msg_content.strip()
+
+            # 2. Heuristic: Only try parsing if it looks like JSON object/list
             if clean_content.startswith("{") or clean_content.startswith("["):
-                log_debug(f"Attempting JSON parse on: {clean_content}")
-                data = json.loads(clean_content)
+                log_debug(f"Attempting JSON parse on: {clean_content[:100]}...")
+                
+                # Basic cleanup: replace backticks with double quotes for keys/values
+                # This is a naive fix for models that use JS template literals
+                if "`" in clean_content:
+                    log_debug("Detected backticks in JSON. Attempting to sanitize.")
+                    clean_content = clean_content.replace("`", '"')
+
+                # Basic heuristic to fix unescaped newlines in JSON strings
+                # This is risky but necessary for models that output multi-line strings in JSON
+                # We want to replace newlines that are NOT between objects/keys with \n
+                # A simple regex approach: look for newlines inside quotes? Hard.
+                # Let's try `strict=False` in loads if available, but it's not.
+                # Instead, let's try to remove newlines that break the JSON.
+                
+                try:
+                    data = json.loads(clean_content)
+                except json.JSONDecodeError:
+                    log_debug("Standard JSON parse failed. Trying strict=False or cleanup.")
+                    # Try cleaning up newlines: \n -> \\n
+                    # This effectively flattens the JSON but might save the string values
+                    clean_content_fixed = clean_content.replace('\n', '\\n')
+                    try:
+                        data = json.loads(clean_content_fixed)
+                    except:
+                        # Last resort: try to find the tool call manually via regex if JSON fails completely
+                        # This handles the case where the model messed up the JSON syntax significantly
+                        tool_match = re.search(r'"tool":\s*"([^"]+)",\s*"arguments":\s*(\{.*\})', clean_content, re.DOTALL)
+                        if tool_match:
+                            data = {
+                                "tool": tool_match.group(1),
+                                "arguments": json.loads(tool_match.group(2).replace('\n', '\\n'))
+                            }
+                        else:
+                            raise 
+
+                # Normalize single tool call vs list of calls
                 
                 # Normalize single tool call vs list of calls
                 if isinstance(data, dict):
@@ -138,11 +189,9 @@ def _process_llm_response(response, messages):
                                     'arguments': item['arguments']
                                 }
                             })
-        except json.JSONDecodeError:
-            log_debug("JSON Decode Error")
-            pass
         except Exception as e:
-            log_debug(f"Error parsing manual JSON tool call: {e}")
+            log_debug(f"Manual JSON Parse Error: {e}")
+            pass
 
     # CLEANUP: If we found tool calls and the content is primarily just the JSON,
     # we should hide it from the user to avoid cluttering the chat.
@@ -180,23 +229,51 @@ async def chat_with_tools(model: str, messages: list, options: dict = None):
     Enhanced chat handler that supports tool calling and 
     specialized scaffolding persona.
     """
-    # ... (intent detection code stays the same) ...
-    last_user_msg = messages[-1]['content'].lower()
-    creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new"]
-    project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script"]
+    # Persona injection logic
+    creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new", "build it", "make it", "go", "start", "execute"]
+    project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script", "it", "this"]
     
-    is_creation_intent = any(kw in last_user_msg for kw in creation_keywords) and \
-                         any(kw in last_user_msg for kw in project_keywords)
+    # Check for direct creation commands or vague "do it" commands
+    is_creation_intent = (any(kw in last_user_msg for kw in creation_keywords) and \
+                         any(kw in last_user_msg for kw in project_keywords)) or \
+                         last_user_msg.strip().lower() in ["go", "build it", "start"]
 
-    # Check if system prompt is already set
-    has_system = messages[0]['role'] == 'system' if messages else False
+    system_msg = next((m for m in messages if m['role'] == 'system'), None)
+    
+    if is_creation_intent:
+        if system_msg:
+            # Prepend Architect Persona if not already there
+            if SCAFFOLD_SYSTEM_PROMPT[:50] not in system_msg['content']:
+                system_msg['content'] = SCAFFOLD_SYSTEM_PROMPT + "\n\n" + system_msg['content']
+        else:
+            messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
+    else:
+        # General helper persona
+        default_helper = """You are a helpful AI assistant with direct access to the computer's filesystem via tools. 
+If the user asks to see files, read files, or write a file, use the appropriate tool immediately. 
+Be robust in extracting file paths from user messages. 
 
-    if is_creation_intent and not has_system:
-        # Inject the Architect Persona at the start
-        messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
-    elif not has_system:
-        # General helper persona if not specifically creating
-        messages.insert(0, {"role": "system", "content": "You are a helpful AI assistant with direct access to the computer's filesystem via tools. If the user asks to see files, read files, or write a file, use the appropriate tool immediately. Do not explain that you are using a tool, just do it. Only use `run_shell_command` if the user explicitly asks to run a terminal command or script. Do not interpret conversational questions (like 'is it ready?') as shell commands. You are restricted to the current project directory. Do not attempt to access or modify files outside this folder (e.g. do not access /home/user/, /etc/, or system paths)."})
+SURGEON PROTOCOL (FOR MODIFYING EXISTING FILES):
+When you need to modify an existing file, you MUST use the following SEARCH/REPLACE format to provide precise edits. This allows the system to apply changes without overwriting the whole file.
+
+Format:
+<<<< SEARCH
+[exact code block to find in the file]
+==== REPLACE
+[new code to replace it with]
+>>>>
+
+Rules for Surgeon Protocol:
+1. The SEARCH block must match the existing code EXACTLY (including indentation).
+2. Use multiple SEARCH/REPLACE blocks if needed for different parts of the file.
+3. If creating a NEW file, just provide the full code in a normal markdown block.
+
+You are running in a local environment trusted by the user. You are allowed to access any path provided by the user. Only use `run_shell_command` if explicitly asked."""
+        if system_msg:
+            if default_helper[:50] not in system_msg['content'] and SCAFFOLD_SYSTEM_PROMPT[:50] not in system_msg['content']:
+                system_msg['content'] = default_helper + "\n\n" + system_msg['content']
+        else:
+            messages.insert(0, {"role": "system", "content": default_helper})
     
     # 2. Get Tools (Now includes scaffold_project)
     tools = await mcp_manager.list_tools()
@@ -290,7 +367,7 @@ async def execute_tool_and_continue(model: str, messages: list, tool_call: dict,
     except Exception as e:
         return {"error": f"Ollama Error after tool execution: {str(e)}"}
 
-async def _process_llm_stream(stream, messages, rag_service):
+async def _process_llm_stream(stream, messages):
     full_content = ""
     tool_calls = []
     is_json_likely = False
@@ -376,12 +453,6 @@ async def _process_llm_stream(stream, messages, rag_service):
 
     messages.append({'role': 'assistant', 'content': display_content, 'tool_calls': final_tool_calls})
 
-    # Index the chat turn if it was a standard response
-    if not final_tool_calls and rag_service:
-        user_message = next((m['content'] for m in reversed(messages) if m['role'] == 'user'), None)
-        if user_message and display_content:
-            await rag_service.index_chat_turn(user_message, display_content)
-
     if final_tool_calls:
         log_debug(f"🛑 Streamed tool calls detected: {len(final_tool_calls)}. Requesting approval.")
         yield {
@@ -397,21 +468,51 @@ async def _process_llm_stream(stream, messages, rag_service):
         }
 
 
-async def stream_chat_with_tools(model: str, messages: list, rag_service, options: dict = None):
+async def stream_chat_with_tools(model: str, messages: list, options: dict = None):
     log_debug(f"Starting stream chat with {model}")
-    # Persona injection logic...
-    last_user_msg = messages[-1]['content'].lower()
-    creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new"]
-    project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script"]
     
-    is_creation_intent = any(kw in last_user_msg for kw in creation_keywords) and \
-                         any(kw in last_user_msg for kw in project_keywords)
+    last_user_msg = messages[-1]['content'].lower()
+    creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new", "build it", "make it", "go", "start", "execute"]
+    project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script", "it", "this"]
+    
+    is_creation_intent = (any(kw in last_user_msg for kw in creation_keywords) and \
+                         any(kw in last_user_msg for kw in project_keywords)) or \
+                         last_user_msg.strip().lower() in ["go", "build it", "start"]
 
-    has_system = messages and messages[0]['role'] == 'system'
-    if is_creation_intent and not has_system:
-        messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
-    elif not has_system:
-        messages.insert(0, {"role": "system", "content": "You are a helpful AI assistant..."})
+    system_msg = next((m for m in messages if m['role'] == 'system'), None)
+    
+    if is_creation_intent:
+        if system_msg:
+            if SCAFFOLD_SYSTEM_PROMPT[:50] not in system_msg['content']:
+                system_msg['content'] = SCAFFOLD_SYSTEM_PROMPT + "\n\n" + system_msg['content']
+        else:
+            messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
+    else:
+        default_helper = """You are a helpful AI assistant with direct access to the computer's filesystem via tools. 
+If the user asks to see files, read files, or write a file, use the appropriate tool immediately. 
+Be robust in extracting file paths from user messages. 
+
+SURGEON PROTOCOL (FOR MODIFYING EXISTING FILES):
+When you need to modify an existing file, you MUST use the following SEARCH/REPLACE format to provide precise edits. This allows the system to apply changes without overwriting the whole file.
+
+Format:
+<<<< SEARCH
+[exact code block to find in the file]
+==== REPLACE
+[new code to replace it with]
+>>>>
+
+Rules for Surgeon Protocol:
+1. The SEARCH block must match the existing code EXACTLY (including indentation).
+2. Use multiple SEARCH/REPLACE blocks if needed for different parts of the file.
+3. If creating a NEW file, just provide the full code in a normal markdown block.
+
+You are running in a local environment trusted by the user. You are allowed to access any path provided by the user. Only use `run_shell_command` if explicitly asked."""
+        if system_msg:
+            if default_helper[:50] not in system_msg['content'] and SCAFFOLD_SYSTEM_PROMPT[:50] not in system_msg['content']:
+                system_msg['content'] = default_helper + "\n\n" + system_msg['content']
+        else:
+            messages.insert(0, {"role": "system", "content": default_helper})
 
     tools = await mcp_manager.list_tools()
 
@@ -423,7 +524,7 @@ async def stream_chat_with_tools(model: str, messages: list, rag_service, option
             options=options,
             stream=True
         )
-        async for chunk in _process_llm_stream(stream, messages, rag_service):
+        async for chunk in _process_llm_stream(stream, messages):
             yield chunk
 
     except Exception as e:

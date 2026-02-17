@@ -1,4 +1,6 @@
 const { app, BrowserWindow } = require('electron');
+const net = require('net');
+app.disableHardwareAcceleration(); // Add this line
 const { spawn } = require('child_process');
 const path = require('path');
 const url = require('url');
@@ -9,6 +11,26 @@ const fs = require('fs');
 const isDev = !app.isPackaged;
 
 let pythonProcess = null;
+let pythonLspProcess = null;
+
+function checkFrontendReady(win) {
+  const port = 5173;
+  const host = 'localhost';
+  const tryConnect = () => {
+    const socket = net.createConnection(port, host, () => {
+      console.log('Frontend server is up. Loading URL.');
+      win.loadURL('http://localhost:5173');
+      socket.end();
+    });
+
+    socket.on('error', (error) => {
+      console.log('Frontend server not up yet. Retrying in 1 second...');
+      setTimeout(tryConnect, 1000);
+    });
+  };
+
+  tryConnect();
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -23,9 +45,7 @@ function createWindow() {
 
   // Load the React app
   if (isDev) {
-    setTimeout(() => {
-      win.loadURL('http://localhost:5000');
-    }, 5000); // Give the frontend server time to start
+    checkFrontendReady(win);
     win.webContents.openDevTools(); // Open DevTools in development mode
   } else {
     win.loadURL(url.format({
@@ -72,8 +92,44 @@ function killPythonBackend() {
   }
 }
 
+function startLsp() {
+  if (isDev) {
+    console.log('In Dev mode: Skipping LSP spawn (handled by npm script)');
+    return;
+  }
+
+  let scriptPath;
+  scriptPath = path.join(process.resourcesPath, 'api', 'localdev-lsp');
+
+  console.log(`Attempting to start LSP from: ${scriptPath}`);
+
+  pythonLspProcess = spawn(scriptPath);
+
+  pythonLspProcess.stdout.on('data', (data) => {
+    console.log(`lsp stdout: ${data}`);
+  });
+
+  pythonLspProcess.stderr.on('data', (data) => {
+    console.error(`lsp stderr: ${data}`);
+  });
+
+  pythonLspProcess.on('close', (code) => {
+    console.log(`lsp process exited with code ${code}`);
+    pythonLspProcess = null;
+  });
+}
+
+function killLsp() {
+  if (pythonLspProcess) {
+    console.log('Killing LSP process...');
+    pythonLspProcess.kill();
+    pythonLspProcess = null;
+  }
+}
+
 app.whenReady().then(() => {
   startPythonBackend();
+  startLsp();
   createWindow();
 
   app.on('activate', () => {
@@ -84,9 +140,9 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // if (process.platform !== 'darwin') {
+  //   app.quit();
+  // }
 });
 
 // handle everts from preload.js for file/folder management
@@ -120,4 +176,7 @@ ipcMain.handle('dialog:saveFile', async (event, defaultName, content) => {
     return { success: false, error: error.message };
   }
 });
-// app.on('will-quit', killPythonBackend);
+app.on('will-quit', () => {
+  killPythonBackend();
+  killLsp();
+});

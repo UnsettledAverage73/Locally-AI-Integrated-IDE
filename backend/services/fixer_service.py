@@ -43,7 +43,7 @@ class FixerService:
             
             # Using a low temperature for more deterministic code generation
             response = await client.chat(
-                model="deepseek-coder", 
+                model="qwen2.5:0.5b", 
                 messages=messages,
                 options={"temperature": 0.1}
             )

@@ -75,7 +75,7 @@ export default function CodeEditor({
 
     setIsOptimizing(true);
     try {
-      const model = localStorage.getItem("ai_model") || "deepseek-coder";
+      const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
       await optimizer.optimizeFile(filePath, "Fix syntax errors, add missing imports, and optimize.", model);
       alert("✨ Code Optimized Successfully! Please switch tabs or reopen the file to see changes.");
     } catch (e: any) {

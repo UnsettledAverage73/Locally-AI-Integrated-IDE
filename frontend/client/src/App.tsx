@@ -17,7 +17,7 @@ import SystemHealth from "@/components/SystemHealth/SystemHealth";
 import BootScreen from "@/components/SystemHealth/BootScreen";
 import BrowserPanel from "@/components/Browser/BrowserPanel";
 import { Button } from "@/components/ui/button";
-import { fs, rag, llm, git, search } from "@/api/client";
+import { fs, rag, llm, git } from "@/api/client";
 import { FileEntry, ChatMessage, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DownloadProvider } from "@/context/DownloadContext";
@@ -26,18 +26,19 @@ import { motion } from "framer-motion";
 import Header from "@/components/Layout/Header";
 import StatusBar from "@/components/Layout/StatusBar";
 import { CommandPalette } from "@/components/CommandPalette/CommandPalette";
+import { CodeEditorRef } from "@/components/Editor/CodeEditor";
+import { apiClient } from "@/api/client";
+
+import { useSettings } from "@/context/SettingsContext";
 
 interface OpenFile {
   path: string;
   content: string;
 }
 
-import { usePlugins } from "@/plugin/usePlugins";
-
 function App() {
   const { toast } = useToast();
-  const [commands, setCommands] = useState<Map<string, () => void>>(new Map());
-  const pluginManager = usePlugins(setCommands);
+  const { aiMode, enterpriseHost } = useSettings();
   
   // State
   const [rootPath, setRootPath] = useState<string>(localStorage.getItem("rootPath") || ".");
@@ -47,7 +48,71 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system' | 'search'>('explorer');
   const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
-  const [getDiagnostics, setGetDiagnostics] = useState<((code: string, language: string) => Promise<any[]>) | null>(null);
+  const [terminalSessions, setTerminalSessions] = useState<string[]>([]);
+  const [activeTerminal, setActiveTerminal] = useState<string>('');
+  
+  // Chat History State
+  const [chatSessions, setChatSessions] = useState<any[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(localStorage.getItem("currentSessionId"));
+
+  useEffect(() => {
+    // Create an initial terminal on mount
+    if (terminalSessions.length === 0) {
+        apiClient.post('/terminals').then(response => {
+            const { session_id } = response.data;
+            setTerminalSessions([session_id]);
+            setActiveTerminal(session_id);
+        });
+    }
+  }, []);
+
+  const fetchChatSessions = async () => {
+    try {
+      const res = await apiClient.get("/chat/sessions");
+      setChatSessions(res.data);
+    } catch (e) {
+      console.error("Failed to fetch chat sessions", e);
+    }
+  };
+
+  const handleSelectSession = async (sessionId: string) => {
+    try {
+      const res = await apiClient.get(`/chat/sessions/${sessionId}`);
+      setChatMessages(res.data.messages || []);
+      setCurrentSessionId(sessionId);
+      localStorage.setItem("currentSessionId", sessionId);
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to load chat history.", variant: "destructive" });
+    }
+  };
+
+  const handleNewChat = async () => {
+    try {
+      const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
+      const res = await apiClient.post("/chat/sessions", { model });
+      const { session_id } = res.data;
+      setCurrentSessionId(session_id);
+      localStorage.setItem("currentSessionId", session_id);
+      setChatMessages([]);
+      fetchChatSessions();
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to create new chat.", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      await apiClient.delete(`/chat/sessions/${sessionId}`);
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        localStorage.removeItem("currentSessionId");
+        setChatMessages([]);
+      }
+      fetchChatSessions();
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to delete chat.", variant: "destructive" });
+    }
+  };
   
   const handleOpenFileManager = () => {
     const path = "system://file-manager";
@@ -64,33 +129,53 @@ function App() {
     }
     setActiveFile(path);
   };
+
+  const handleRunHtml = (path: string) => {
+    const fileUrl = `file://${path}`;
+    setBrowserUrl(fileUrl);
+    handleOpenBrowser();
+  };
   
   // Loading States
   const [isBooting, setIsBooting] = useState(true);
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [isIndexing, setIsIndexing] = useState(false);
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [hasCheckedOllama, setHasCheckedOllama] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [browserUrl, setBrowserUrl] = useState("https://www.google.com");
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
-  const handleQueueMessage = (message: string) => {
-    setQueuedMessages((prev) => [...prev, message]);
-  };
 
-  const handleRemoveQueuedMessage = (index: number) => {
-    setQueuedMessages((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleReorderQueuedMessages = (newOrder: string[]) => {
-    setQueuedMessages(newOrder);
-  };
-
-
-  const chatInputRef = useRef<HTMLInputElement>(null);
   const activeFileContent = openFiles.find((f) => f.path === activeFile)?.content || "";
   const chatSocket = useRef<WebSocket | null>(null);
+  const editorRef = useRef<CodeEditorRef>(null);
+
+  const refreshOllamaData = async () => {
+    try {
+        const host = aiMode === 'enterprise' ? enterpriseHost : 'http://localhost:11434';
+        const status = await llm.updateAIHost(host);
+        setOllamaAvailable(status.available);
+        setHasCheckedOllama(true);
+        if (status.available) {
+            const { models } = await llm.models();
+            setOllamaModels(models);
+        } else {
+            setOllamaModels([]);
+        }
+    } catch (e) {
+        console.error("Failed to refresh Ollama data", e);
+        setOllamaAvailable(false);
+        setOllamaModels([]);
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('ollamaHostChanged', refreshOllamaData);
+    return () => {
+      window.removeEventListener('ollamaHostChanged', refreshOllamaData);
+    };
+  }, [aiMode, enterpriseHost]);
 
   // WebSocket Chat Connection
   useEffect(() => {
@@ -135,36 +220,8 @@ function App() {
             
           case "complete":
             setIsChatLoading(false);
-            if (!getDiagnostics) break;
-
-            const lastMessage = chatMessages[chatMessages.length - 1];
-            if (lastMessage?.role === 'assistant') {
-              const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/;
-              const match = lastMessage.content.match(codeBlockRegex);
-
-              if (match) {
-                const language = match[1];
-                const code = match[2];
-                
-                setIsVerifying(true);
-                getDiagnostics(code, language).then(markers => {
-                  setIsVerifying(false);
-                  const errors = markers.filter(m => m.severity === 8); // 8 is monaco.MarkerSeverity.Error
-
-                  if (errors.length > 0) {
-                    const errorStr = errors.map(e => `L${e.startLineNumber}: ${e.message}`).join("\n");
-                    const correctionPrompt = `The following code has errors:\n\n\`\`\`${language}\n${code}\n\`\`\`\n\nErrors:\n${errorStr}\n\nPlease fix the errors and provide the corrected code.`;
-                    handleSendMessage(correctionPrompt);
-                  } else {
-                    toast({
-                      title: "Code Verified",
-                      description: "AI-generated code has been successfully verified.",
-                      className: "bg-green-500/10 border-green-500/50 text-green-500",
-                    });
-                  }
-                });
-              }
-            }
+            // Trigger Signal for Dashboard
+            window.dispatchEvent(new Event("llm-request-completed"));
             break;
             
           case "error":
@@ -200,6 +257,12 @@ function App() {
   useEffect(() => {
     const boot = async () => {
       try {
+        // --- ENTERPRISE AUTO-CONNECT ---
+        if (aiMode === "enterprise" && enterpriseHost) {
+            console.log(`🚀 Enterprise Mode: Attempting connection to ${enterpriseHost}`);
+            await llm.updateAIHost(enterpriseHost);
+        }
+
         // Check Ollama connection
         const ollamaStatus = await llm.check();
         setOllamaAvailable(ollamaStatus.available);
@@ -213,6 +276,12 @@ function App() {
         if (ollamaStatus.available) {
           const { models } = await llm.models();
           setOllamaModels(models);
+        }
+
+        // Fetch Chat History
+        await fetchChatSessions();
+        if (currentSessionId) {
+            handleSelectSession(currentSessionId);
         }
 
         // Fetch File Tree
@@ -282,73 +351,89 @@ function App() {
 
   // File Watcher (WebSocket)
   useEffect(() => {
-      const ws = new WebSocket("ws://127.0.0.1:8000/ws/files");
+      let ws: WebSocket | null = null;
+      let reconnectTimeout: NodeJS.Timeout | null = null;
 
-      ws.onopen = () => {
-          console.log("Connected to File Watcher");
-      };
+      const connectFilesSocket = () => {
+          ws = new WebSocket("ws://127.0.0.1:8000/ws/files");
 
-      ws.onmessage = async (event) => {
-          try {
-              const data = JSON.parse(event.data);
-              if (data.type === "file_change") {
-                  // Refresh tree on structural changes
-                  if (['created', 'deleted', 'moved'].includes(data.event)) {
-                      const entries = await fs.getFileTree(rootPath);
-                      setFileTree(entries);
-                  }
+          ws.onopen = () => {
+              console.log("Connected to File Watcher");
+          };
 
-                  // Toast for external modifications
-                  if (data.event === 'modified' || data.event === 'created') {
-                      // Auto-index the file if it's not a directory and has a valid extension
-                      if (data.path && !data.isDirectory) {
-                          try {
-                              const { content } = await fs.readFile(data.path);
-                              await rag.indexFile(data.path, content);
-                              console.log(`Auto-indexed updated file: ${data.path}`);
-                          } catch (e) {
-                              console.error(`Failed to auto-index ${data.path}`, e);
-                          }
+          ws.onmessage = async (event) => {
+              try {
+                  const data = JSON.parse(event.data);
+                  if (data.type === "file_change") {
+                      // Refresh tree on structural changes
+                      if (['created', 'deleted', 'moved'].includes(data.event)) {
+                          const entries = await fs.getFileTree(rootPath);
+                          setFileTree(entries);
                       }
 
-                      toast({
-                          title: `File ${data.event === 'created' ? 'Created' : 'Changed'}`,
-                          description: `External change: ${data.name}`,
-                          action: (
-                              <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={async () => {
-                                      // Reload the file content if it matches active path
-                                      try {
-                                          if (data.path) {
-                                              const { content } = await fs.readFile(data.path);
-                                              setOpenFiles((prev) => 
-                                                  prev.map((f) => (f.path === data.path ? { ...f, content } : f))
-                                              );
-                                              // Also update active file content if it is the one open
-                                              toast({ title: "File Reloaded" });
+                      // Toast for external modifications
+                      if (data.event === 'modified' || data.event === 'created') {
+                          // Auto-index the file if it's not a directory
+                          if (data.path && !data.isDirectory) {
+                              try {
+                                  const { content } = await fs.readFile(data.path);
+                                  await rag.indexFile(data.path, content);
+                                  console.log(`Auto-indexed updated file: ${data.path}`);
+                              } catch (e) {
+                                  console.error(`Failed to auto-index ${data.path}`, e);
+                              }
+                          }
+
+                          toast({
+                              title: `File ${data.event === 'created' ? 'Created' : 'Changed'}`,
+                              description: `External change: ${data.name}`,
+                              action: (
+                                  <Button 
+                                      variant="outline" 
+                                      size="sm" 
+                                      onClick={async () => {
+                                          try {
+                                              if (data.path) {
+                                                  const { content } = await fs.readFile(data.path);
+                                                  setOpenFiles((prev) => 
+                                                      prev.map((f) => (f.path === data.path ? { ...f, content } : f))
+                                                  );
+                                                  toast({ title: "File Reloaded" });
+                                              }
+                                          } catch (e) {
+                                              toast({ title: "Reload Failed", variant: "destructive" });
                                           }
-                                      } catch (e) {
-                                          toast({ title: "Reload Failed", variant: "destructive" });
-                                      }
-                                  }}
-                              >
-                                  Reload
-                              </Button>
-                          ),
-                      });
+                                      }}
+                                  >
+                                      Reload
+                                  </Button>
+                              ),
+                          });
+                      }
                   }
+              } catch (e) {
+                  console.error("WS Error", e);
               }
-          } catch (e) {
-              console.error("WS Error", e);
-          }
+          };
+
+          ws.onclose = () => {
+              console.log("File Watcher disconnected. Reconnecting in 2s...");
+              reconnectTimeout = setTimeout(connectFilesSocket, 2000);
+          };
+
+          ws.onerror = (err) => {
+              console.error("File Watcher Error", err);
+              ws?.close();
+          };
       };
 
+      connectFilesSocket();
+
       return () => {
-          ws.close();
+          if (reconnectTimeout) clearTimeout(reconnectTimeout);
+          ws?.close();
       };
-  }, []);
+  }, [rootPath]);
 
   const handleFileClick = async (path: string) => {
     // Check if file is already open
@@ -458,33 +543,137 @@ function App() {
     }
   };
 
-  const handleApplyCode = async (code: string) => {
+  const handleApplyCode = async (code: string, language?: string) => {
+    // 1. Try to parse as JSON Tool Call (Auto-Scaffold)
+    try {
+        const cleanCode = code.trim();
+        if (cleanCode.startsWith("{") && cleanCode.includes("scaffold_project")) {
+            const data = JSON.parse(cleanCode);
+            if (data.tool === "scaffold_project" && data.arguments?.file_structure) {
+                toast({ title: "Auto-Scaffolding", description: "Detected project structure. Creating files..." });
+                
+                const { base_path, file_structure } = data.arguments;
+                let createdCount = 0;
+
+                for (const [filename, content] of Object.entries(file_structure)) {
+                    const fullPath = `${base_path}/${filename}`;
+                    await fs.writeFile(fullPath, content as string);
+                    createdCount++;
+                }
+
+                toast({ 
+                    title: "Scaffold Complete", 
+                    description: `Created ${createdCount} files in ${base_path}/`, 
+                    className: "bg-green-500/10 border-green-500/50 text-green-500" 
+                });
+                
+                // Refresh file tree
+                const entries = await fs.getFileTree(rootPath);
+                setFileTree(entries);
+                return;
+            }
+        }
+    } catch (e) {
+        // Not valid JSON or not a scaffold command, proceed
+    }
+
+    // 2. Try to parse as SEARCH/REPLACE blocks (Surgeon Protocol)
+    if (activeFile && code.includes("<<<< SEARCH") && code.includes("==== REPLACE")) {
+        try {
+            const openFile = openFiles.find(f => f.path === activeFile);
+            if (openFile) {
+                let newContent = openFile.content;
+                // Match all SEARCH/REPLACE blocks
+                const blockRegex = /<<<< SEARCH([\s\S]*?)==== REPLACE([\s\S]*?)>>>>/g;
+                let match;
+                let appliedCount = 0;
+
+                while ((match = blockRegex.exec(code)) !== null) {
+                    const searchText = match[1].trim();
+                    const replaceText = match[2].trim();
+
+                    if (newContent.includes(searchText)) {
+                        newContent = newContent.replace(searchText, replaceText);
+                        appliedCount++;
+                    } else {
+                        console.warn("Surgeon search block not found exactly in file:", searchText);
+                    }
+                }
+
+                if (appliedCount > 0) {
+                    toast({ title: "Surgeon Edit Success", description: `Applied ${appliedCount} precise modifications.` });
+                    await fs.writeFile(activeFile, newContent);
+                    setOpenFiles(prev => prev.map(f => f.path === activeFile ? { ...f, content: newContent } : f));
+                    return;
+                } else {
+                    toast({ title: "Surgeon Failed", description: "Could not find matching code blocks in the file.", variant: "destructive" });
+                }
+            }
+        } catch (e) {
+            console.error("Surgeon error", e);
+        }
+    }
+
     if (!activeFile) {
-        toast({
-            title: "No File Selected",
-            description: "Please open a file to apply code.",
-            variant: "destructive",
-        });
+        // No active file? Prompt to save as new file.
+        try {
+            // Check if fileSystem API is available (Electron)
+            if ((window as any).fileSystem?.saveFile) {
+                // Determine default extension
+                let ext = "txt";
+                if (language) {
+                    if (language === 'python') ext = 'py';
+                    else if (language === 'javascript') ext = 'js';
+                    else if (language === 'typescript') ext = 'ts';
+                    else if (language === 'html') ext = 'html';
+                    else if (language === 'css') ext = 'css';
+                    else if (language === 'json') ext = 'json';
+                    else if (language === 'markdown') ext = 'md';
+                    else if (language === 'bash' || language === 'sh') ext = 'sh';
+                }
+                const defaultName = `new_file.${ext}`;
+
+                const result = await (window as any).fileSystem.saveFile(defaultName, code);
+                if (result.success) {
+                    // Open the newly created file
+                    await handleFileClick(result.path);
+                    toast({
+                        title: "File Saved",
+                        description: `Saved to ${result.path}`,
+                        className: "bg-green-500/10 border-green-500/50 text-green-500",
+                    });
+                } else if (result.error) {
+                    toast({ title: "Save Error", description: result.error, variant: "destructive" });
+                }
+            } else {
+                toast({
+                    title: "Not Supported",
+                    description: "Save file dialog is only available in the Electron app.",
+                    variant: "destructive",
+                });
+            }
+        } catch (e) {
+            console.error(e);
+            toast({ title: "Error", description: "Failed to save file.", variant: "destructive" });
+        }
         return;
     }
 
-    try {
-        await fs.writeFile(activeFile, code);
-        // Update openFiles state
-        setOpenFiles((prev) =>
-            prev.map((f) => (f.path === activeFile ? { ...f, content: code } : f))
-        );
-        toast({
-            title: "Code Applied",
-            description: `Updated ${activeFile} successfully.`,
-            className: "bg-green-500/10 border-green-500/50 text-green-500",
-        });
-    } catch (error) {
-        toast({
-            title: "Apply Failed",
-            description: "Could not write to file.",
-            variant: "destructive",
-        });
+    // Active file exists: Use Smart Merge (AI Diff)
+    if (editorRef.current) {
+        toast({ title: "Analyzing Merge...", description: "AI is figuring out where to insert the code." });
+        editorRef.current.triggerSmartMerge(code);
+    } else {
+        // Fallback to overwrite if editor not mounted (shouldn't happen)
+        try {
+            await fs.writeFile(activeFile, code);
+            setOpenFiles((prev) =>
+                prev.map((f) => (f.path === activeFile ? { ...f, content: code } : f))
+            );
+            toast({ title: "File Overwritten", description: "Editor ref missing, performed direct write.", variant: "destructive" });
+        } catch (e) {
+            toast({ title: "Write Failed", variant: "destructive" });
+        }
     }
   };
 
@@ -500,23 +689,14 @@ function App() {
     setIsChatLoading(true);
 
     try {
-        let context = "";
-        if (ollamaAvailable) {
-            const { context: ragContext } = await rag.getContext(content, activeFile);
-            context = ragContext;
-        }
-
-        const messagesToSend = context
-            ? [{ role: "system" as const, content: `You are an expert developer. Use the following project context to answer the user's request. If the context is irrelevant, ignore it. \n\nContext:\n${context}` }, ...newMessages]
-            : newMessages;
-        
-        const model = localStorage.getItem("ai_model") || "deepseek-coder";
+        const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
         const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
 
         chatSocket.current.send(JSON.stringify({
             type: "chat",
             model,
-            messages: messagesToSend,
+            messages: newMessages,
+            session_id: currentSessionId,
             options: { temperature: temp }
         }));
     } catch (error) {
@@ -539,7 +719,7 @@ function App() {
       // Remove the permission request message
       setChatMessages(prev => prev.filter(msg => msg.type !== 'permission_request'));
 
-      const model = localStorage.getItem("ai_model") || "deepseek-coder";
+      const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
       const temp = parseFloat(localStorage.getItem("ai_temperature") || "0.4");
 
       chatSocket.current.send(JSON.stringify({
@@ -547,6 +727,7 @@ function App() {
           model,
           messages: chatMessages,
           tool_call: toolCall,
+          session_id: currentSessionId,
           approved,
           options: { temperature: temp }
       }));
@@ -601,8 +782,7 @@ function App() {
         if (!args) {
           setChatMessages(prev => [...prev, { 
             role: "assistant", 
-            content: `Current model: **${localStorage.getItem("ai_model") || "deepseek-coder"}**\n\nAvailable models:\n${ollamaModels.map(m => `- \`/model ${m}\``).join("\n")}`
-          }]);
+            content: `Current model: **${localStorage.getItem("ai_model") || "qwen2.5:0.5b"}**\n\nAvailable models:\n${ollamaModels.map(m => `- \`/model ${m}\``).join("\n")}`}]);
           return;
         }
         if (ollamaModels.includes(args)) {
@@ -617,7 +797,7 @@ function App() {
         setChatMessages(prev => [...prev, {
           role: "assistant",
           content: "### System Status\n\n" +
-                   `- **Active Model**: ${localStorage.getItem("ai_model") || "deepseek-coder"}\n` +
+                   `- **Active Model**: ${localStorage.getItem("ai_model") || "qwen2.5:0.5b"}\n` +
                    `- **Context File**: ${activeFile ? `\`${activeFile}\`` : "None"}\n` +
                    `- **AI Backend**: ${ollamaAvailable ? "Online 🟢" : "Offline 🔴"}\n` +
                    `- **Git Branch**: \`${currentBranch}\`\n`
@@ -655,68 +835,20 @@ function App() {
     }
   };
 
-  const handleModelChange = (model: string) => {
-    localStorage.setItem("ai_model", model);
-    toast({
-      title: "Model Switched",
-      description: `Active model is now ${model}`,
-      className: "bg-green-500/10 border-green-500/50 text-green-500",
-    });
-  };
-
-  const handleContextCommand = async (contextType: string, searchTerm: string) => {
-    let result = "";
-    try {
-      // For now, directly call the backend search for context.
-      // In future, this might involve a more complex flow, e.g., using tool calls.
-      const { context } = await search.contextSearch(contextType, searchTerm);
-      result = context;
-    } catch (error: unknown) {
-      result = `Error fetching context: ${(error as Error).message}`;
-      toast({ title: "Context Error", description: result, variant: "destructive" });
-    }
-
-    setChatMessages((prev) => [
-      ...prev,
-      { role: "assistant", content: `Context for @${contextType} ${searchTerm}:\n\n\`\`\`\n${result}\n\`\`\`` },
-    ]);
-  };
-
-  const [rightPanelSize, setRightPanelSize] = useState<number | undefined>(25);
-  const handleMonacoReady = (getDiagnostics: (code: string, language: string) => Promise<any[]>) => {
-    setGetDiagnostics(() => getDiagnostics);
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'i') {
-        e.preventDefault();
-        if (rightPanelSize === 0) {
-          setRightPanelSize(25);
-        }
-        chatInputRef.current?.focus();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [rightPanelSize]);
-  useEffect(() => {
-    if (!isChatLoading && queuedMessages.length > 0) {
-      const nextMessage = queuedMessages[0];
-      handleSendMessage(nextMessage);
-      handleRemoveQueuedMessage(0);
-    }
-  }, [isChatLoading, queuedMessages]);
-
   const handleTerminalCommand = (command: string) => {
-    // TODO: Implement sending command to active terminal
-    toast({
-        title: "Command Sent",
-        description: "Sent to terminal (implementation pending).",
-    });
+      if (chatSocket.current && chatSocket.current.readyState === WebSocket.OPEN) {
+          chatSocket.current.send(JSON.stringify({
+              type: "terminal_command",
+              command: command,
+              session_id: activeTerminal,
+          }));
+      } else {
+          toast({
+              title: "Terminal Command",
+              description: "Terminal is not connected.",
+              variant: "destructive",
+          });
+      }
   };
 
   if (isBooting) {
@@ -855,16 +987,17 @@ function App() {
                                                 onFileOpen={handleFileClick} 
                                             />
                                         ) : activeFile === "system://browser" ? (
-                                            <BrowserPanel />
+                                            <BrowserPanel initialUrl={browserUrl} />
                                         ) : (
                                             <CodeEditor 
+                                                ref={editorRef}
                                                 content={activeFileContent} 
                                                 filePath={activeFile} 
                                                 onChange={handleEditorChange}
                                                 onSave={handleSave}
                                                 onIndex={handleIndex}
+                                                onRun={handleRunHtml}
                                                 isIndexing={isIndexing}
-                                                onMonacoReady={handleMonacoReady}
                                             />
                                         )}
                                     </div>
@@ -878,7 +1011,12 @@ function App() {
                       <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
                       
                       <ResizablePanel defaultSize={25} minSize={10}>
-                          <TerminalManager />
+                          <TerminalManager 
+                            sessions={terminalSessions}
+                            setSessions={setTerminalSessions}
+                            activeTab={activeTerminal}
+                            setActiveTab={setActiveTerminal}
+                          />
                       </ResizablePanel>
                   </ResizablePanelGroup>
               </ResizablePanel>
@@ -886,16 +1024,14 @@ function App() {
               <ResizableHandle className="bg-border hover:bg-accent transition-colors" />
 
               {/* Right Sidebar: AI Chat */}
-              <ResizablePanel defaultSize={25} minSize={20} maxSize={40} size={rightPanelSize} onResize={setRightPanelSize}>
+              <ResizablePanel defaultSize={25} minSize={20} maxSize={40}>
                   <ChatPanel 
-                      forwardedRef={chatInputRef}
                       messages={chatMessages} 
                       onSendMessage={handleSendMessage} 
                       onCommand={handleCommand}
                       onStopGeneration={handleStopGeneration}
                       onRemoveContext={() => setActiveFile(null)}
                       isLoading={isChatLoading}
-                      isVerifying={isVerifying}
                       activeFile={activeFile}
                       ollamaAvailable={ollamaAvailable}
                       ollamaModels={ollamaModels}
@@ -903,13 +1039,13 @@ function App() {
                       hasCheckedOllama={hasCheckedOllama}
                       onApplyCode={handleApplyCode}
                       onToolAction={handleToolAction}
-      onTerminalCommand={handleTerminalCommand}
-                      onModelChange={handleModelChange}
-                      onContextCommand={handleContextCommand}
-                      queuedMessages={queuedMessages}
-                      onQueueMessage={handleQueueMessage}
-                      onRemoveQueuedMessage={handleRemoveQueuedMessage}
-                      onReorderQueuedMessages={handleReorderQueuedMessages}
+                      onTerminalCommand={handleTerminalCommand}
+                      // History Props
+                      sessions={chatSessions}
+                      currentSessionId={currentSessionId}
+                      onSelectSession={handleSelectSession}
+                      onNewChat={handleNewChat}
+                      onDeleteSession={handleDeleteSession}
                   />
               </ResizablePanel>
           </ResizablePanelGroup>

@@ -49,6 +49,7 @@ class RAGService:
         self.table = None
         self.chat_table = None
         self.indexed_files = set() 
+        self.index_state_path = os.path.join(self.db_path, "index_state.txt")
         self.initialize_db()
 
     def initialize_db(self):
@@ -56,6 +57,12 @@ class RAGService:
             log_debug(f"Initializing LanceDB at {self.db_path}")
             self.db = lancedb.connect(self.db_path)
             log_debug(f"DB connection established. Type: {type(self.db)}, Truthy: {bool(self.db)}")
+
+            if os.path.exists(self.index_state_path):
+                with open(self.index_state_path, "r") as f:
+                    self.indexed_files = set(f.read().splitlines())
+                log_debug(f"Loaded {len(self.indexed_files)} indexed files from state.")
+
             try:
                 self.table = self.db.open_table("code_index")
                 log_debug("Opened existing table 'code_index'")
@@ -164,6 +171,8 @@ class RAGService:
                 log_debug(f"Adding {len(records)} records to existing 'code_index' table for {file_path}.")
                 self.table.add(records)
             self.indexed_files.add(file_path)
+            with open(self.index_state_path, "w") as f:
+                f.write("\n".join(self.indexed_files))
             log_debug(f"Successfully indexed {file_path}.")
         else:
             log_debug(f"No records to add for {file_path}.")
@@ -295,6 +304,8 @@ class RAGService:
                 self.db.drop_table("code_index")
                 self.table = None
                 self.indexed_files.clear()
+                if os.path.exists(self.index_state_path):
+                    os.remove(self.index_state_path)
             except Exception as e:
                 print(f"Error dropping LanceDB table: {e}")
     

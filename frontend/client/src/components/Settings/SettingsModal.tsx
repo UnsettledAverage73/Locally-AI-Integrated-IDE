@@ -13,10 +13,11 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Paintbrush, Moon, Sun, Monitor } from "lucide-react";
-import axios from "axios";
+import { Paintbrush, Moon, Sun, Monitor, Loader2, Check, WifiOff, Server, Wifi } from "lucide-react";
+import { useSettings } from "@/context/SettingsContext";
 import ModelSettings from "./ModelSettings";
 import GitHubSettings from "./GitHubSettings";
+import { llm } from "@/api/client";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -33,45 +34,58 @@ const THEMES = [
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { toast } = useToast();
+  const { aiMode, setAiMode, enterpriseHost, setEnterpriseHost } = useSettings();
   const [activeTab, setActiveTab] = useState("environment");
-  const [mode, setMode] = useState("local");
-  const [awsAccessKey, setAwsAccessKey] = useState("");
-  const [awsSecretKey, setAwsSecretKey] = useState("");
-  const [awsSessionToken, setAwsSessionToken] = useState("");
-  const [awsRegion, setAwsRegion] = useState("us-east-1");
   const [currentTheme, setCurrentTheme] = useState("default");
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'pending'>('pending');
 
   useEffect(() => {
     if (isOpen) {
-        // Fetch current config status
-        axios.get("http://localhost:8000/config/status").then((res) => {
-            setMode(res.data.mode);
-        }).catch(err => console.error("Failed to fetch config", err));
-        
-        // Load Theme
-        const savedTheme = localStorage.getItem("ui_theme") || "default";
-        setCurrentTheme(savedTheme);
+      // Load Theme
+      const savedTheme = localStorage.getItem("ui_theme") || "default";
+      setCurrentTheme(savedTheme);
+      
+      // Test connection on open
+      if (aiMode === 'enterprise') {
+          handleTestConnection(enterpriseHost, false);
+      } else {
+          handleTestConnection("http://localhost:11434", false);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, aiMode]);
+
+  const handleTestConnection = async (host: string, showToast = true) => {
+    if (!host && aiMode === 'enterprise') {
+      setConnectionStatus("disconnected");
+      if (showToast) toast({ title: "Host URL required", variant: "destructive" });
+      return;
+    }
+    setConnectionStatus("pending");
+    try {
+      const res = await llm.updateAIHost(aiMode === 'local' ? 'http://localhost:11434' : host);
+      if (res.available) {
+        setConnectionStatus("connected");
+        if (showToast) toast({ title: "Connection Successful", description: `Connected to ${host}`, className: "bg-green-500/10" });
+        window.dispatchEvent(new Event('ollamaHostChanged')); // Signal app to refresh
+      } else {
+        setConnectionStatus("disconnected");
+        if (showToast) toast({ title: "Connection Failed", description: "Could not connect to the host.", variant: "destructive" });
+      }
+    } catch (e) {
+      setConnectionStatus("disconnected");
+      if (showToast) toast({ title: "Connection Error", description: "An unexpected error occurred.", variant: "destructive" });
+    }
+  };
 
   const handleSave = async () => {
     try {
-      // Save Config
-      await axios.post("http://localhost:8000/config/update", {
-        mode,
-        aws_access_key: awsAccessKey || undefined,
-        aws_secret_key: awsSecretKey || undefined,
-        aws_session_token: awsSessionToken || undefined,
-        aws_region: awsRegion,
-      });
-      
-      // Save Theme
+      // Theme is saved separately as it's a UI-only concern
       localStorage.setItem("ui_theme", currentTheme);
       document.documentElement.className = currentTheme === "default" ? "" : currentTheme;
 
       toast({
         title: "Settings Saved",
-        description: `Configuration and appearance updated.`,
+        description: `Configuration and appearance updated. Your changes will be fully applied on the next app reload.`,
         className: "bg-green-500/10 border-green-500/50 text-green-500",
       });
       onClose();
@@ -108,66 +122,36 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <TabsContent value="environment" className="py-4 space-y-4">
                 <div className="grid gap-6">
                   <div className="grid gap-3">
-                    <Label className="text-lg font-light">AI Backend</Label>
-                    <RadioGroup defaultValue={mode} value={mode} onValueChange={setMode} className="flex gap-4">
-                      <div className="flex items-center space-x-2 border border-white/10 bg-white/5 p-4 rounded-xl w-full hover:bg-white/10 transition-colors cursor-pointer group">
-                        <RadioGroupItem value="local" id="local" className="border-primary text-primary" />
-                        <Label htmlFor="local" className="cursor-pointer group-hover:text-primary transition-colors">Local (Ollama)</Label>
-                      </div>
-                      <div className="flex items-center space-x-2 border border-white/10 bg-white/5 p-4 rounded-xl w-full hover:bg-white/10 transition-colors cursor-pointer group">
-                        <RadioGroupItem value="cloud" id="cloud" className="border-primary text-primary" />
-                        <Label htmlFor="cloud" className="cursor-pointer group-hover:text-primary transition-colors">Cloud (AWS)</Label>
-                      </div>
+                    <Label className="text-lg font-light">AI Host Configuration</Label>
+                    <RadioGroup value={aiMode} onValueChange={(v) => setAiMode(v as "local" | "enterprise")} className="flex gap-4">
+                        <div className="flex items-center space-x-2 border border-border bg-background p-4 rounded-lg w-full hover:bg-accent/50 transition-colors cursor-pointer group">
+                            <RadioGroupItem value="local" id="local-host" />
+                            <Label htmlFor="local-host" className="flex items-center gap-2 cursor-pointer"> <Server className="w-4 h-4"/> Local Machine</Label>
+                        </div>
+                        <div className="flex items-center space-x-2 border border-border bg-background p-4 rounded-lg w-full hover:bg-accent/50 transition-colors cursor-pointer group">
+                            <RadioGroupItem value="enterprise" id="enterprise-host" />
+                            <Label htmlFor="enterprise-host" className="flex items-center gap-2 cursor-pointer"><Wifi className="w-4 h-4" /> Enterprise Endpoint</Label>
+                        </div>
                     </RadioGroup>
+                    
+                    {aiMode === 'enterprise' && (
+                        <div className="space-y-2 pl-2 animate-in fade-in slide-in-from-top-2">
+                            <Label htmlFor="enterprise-url">Endpoint URL</Label>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    id="enterprise-url"
+                                    value={enterpriseHost}
+                                    onChange={(e) => setEnterpriseHost(e.target.value)}
+                                    placeholder="http://your-company-ai.net:11434"
+                                />
+                                {connectionStatus === 'connected' && <Check className="w-5 h-5 text-green-500" title="Connected" />}
+                                {connectionStatus === 'disconnected' && <WifiOff className="w-5 h-5 text-red-500" title="Connection Failed" />}
+                                {connectionStatus === 'pending' && <Loader2 className="w-5 h-5 animate-spin" title="Testing..." />}
+                            </div>
+                            <Button onClick={() => handleTestConnection(enterpriseHost)} size="sm" className="mt-2">Test Connection</Button>
+                        </div>
+                    )}
                   </div>
-
-                  {mode === "cloud" && (
-                    <div className="space-y-4 border-t border-border pt-4 animate-in fade-in slide-in-from-top-2">
-                      <div className="grid gap-2">
-                        <Label htmlFor="access-key">AWS Access Key</Label>
-                        <Input
-                          id="access-key"
-                          type="password"
-                          value={awsAccessKey}
-                          onChange={(e) => setAwsAccessKey(e.target.value)}
-                          placeholder="AKIA..."
-                          className="bg-background/50"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="secret-key">AWS Secret Key</Label>
-                        <Input
-                          id="secret-key"
-                          type="password"
-                          value={awsSecretKey}
-                          onChange={(e) => setAwsSecretKey(e.target.value)}
-                          placeholder="Secret..."
-                          className="bg-background/50"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="session-token">Session Token (Optional)</Label>
-                        <Input
-                          id="session-token"
-                          type="password"
-                          value={awsSessionToken}
-                          onChange={(e) => setAwsSessionToken(e.target.value)}
-                          placeholder="Token..."
-                          className="bg-background/50"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="region">Region</Label>
-                        <Input
-                          id="region"
-                          value={awsRegion}
-                          onChange={(e) => setAwsRegion(e.target.value)}
-                          placeholder="us-east-1"
-                          className="bg-background/50"
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
             </TabsContent>
 

@@ -32,6 +32,15 @@ pyinstaller \
     --hidden-import="services" \
     --hidden-import="services.model_loader" \
     "$MAIN_SCRIPT"
+
+pyinstaller \
+    --onefile \
+    --name localdev-lsp \
+    --distpath "$OUTPUT_DIR" \
+    --paths="." \
+    --hidden-import="jedi" \
+    --hidden-import="pygls" \
+    "language_server.py"
 deactivate
 
 # Navigate back to the original directory

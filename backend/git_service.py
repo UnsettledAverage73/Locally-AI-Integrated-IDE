@@ -96,11 +96,11 @@ class GitService:
 
         messages = [{"role": "user", "content": prompt}]
 
-        # Let's try to list models and pick a suitable one, defaulting to 'deepseek-coder'.
+        # Let's try to list models and pick a suitable one, defaulting to 'qwen2.5:0.5b'.
         available_models = await self.ollama.list_models()
-        model = "deepseek-coder"  # default
+        model = "qwen2.5:0.5b"  # default
         # A simple logic to find a suitable model if the default is not available.
-        if "deepseek-coder" not in [m["name"] for m in available_models]:
+        if "qwen2.5:0.5b" not in [m["name"] for m in available_models]:
             if available_models:
                 model = available_models[0]["name"]
             else:
