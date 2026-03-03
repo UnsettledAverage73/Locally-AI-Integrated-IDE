@@ -3,9 +3,20 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, RotateCcw, ChevronLeft, ChevronRight, Globe, ExternalLink } from "lucide-react";
 
-export default function BrowserPanel() {
-  const [url, setUrl] = useState("https://www.google.com");
-  const [inputUrl, setInputUrl] = useState("https://www.google.com");
+interface BrowserPanelProps {
+  initialUrl?: string;
+}
+
+export default function BrowserPanel({ initialUrl = "https://www.google.com" }: BrowserPanelProps) {
+  const [url, setUrl] = useState(initialUrl);
+  const [inputUrl, setInputUrl] = useState(initialUrl);
+
+  React.useEffect(() => {
+    if (initialUrl && initialUrl !== url) {
+        setUrl(initialUrl);
+        setInputUrl(initialUrl);
+    }
+  }, [initialUrl]);
 
   const handleNavigate = (e: React.FormEvent) => {
     e.preventDefault();

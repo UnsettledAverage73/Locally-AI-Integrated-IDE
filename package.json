@@ -7,7 +7,7 @@
     "start": "npm run start:dev",
     "start:backend": "bash ./backend.sh",
     "start:lsp": "cd backend && . venv/bin/activate && python -m language_server",
-    "start:frontend": "cd frontend && npm run dev:client",
+    "start:frontend": "cd frontend && npm run dev",
     "start:electron": "electron .",
     "start:dev": "concurrently --kill-others -n \"BACKEND,LSP,FRONTEND,ELECTRON\" \"npm run start:backend\" \"npm run start:lsp\" \"npm run start:frontend\" \"npm run start:electron\"",
     "build": "rm -rf dist && mkdir -p dist && npm run build:frontend && npm run build:backend && cp -r frontend/dist/. dist/ && cp -r electron dist/electron && node -e \"const pkg = require('./package.json'); delete pkg.build; delete pkg.scripts; delete pkg.devDependencies; require('fs').writeFileSync('dist/package.json', JSON.stringify(pkg, null, 2));\" && electron-builder",

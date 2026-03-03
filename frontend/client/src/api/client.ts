@@ -86,6 +86,14 @@ export const fs = {
     return data;
   },
 
+  selectFolder: async (): Promise<string | null> => {
+    return await (window as any).fileSystem.selectFolder();
+  },
+
+  selectFiles: async (): Promise<string[] | null> => {
+    return await (window as any).fileSystem.selectFiles();
+  },
+
   showSaveDialog: async (defaultName: string): Promise<{ filePath: string | null }> => {
     const { data } = await apiClient.post("/fs/save-dialog", { default_name: defaultName });
     return data;

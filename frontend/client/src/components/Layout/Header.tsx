@@ -1,20 +1,45 @@
 import { Button } from "@/components/ui/button";
-import { Command, Settings, ChevronRight } from "lucide-react";
+import { Command, Settings, ChevronRight, LayoutGrid, Terminal } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface HeaderProps {
+    onToggleSidebar: () => void;
+    onTogglePanel: () => void;
+    isSidebarVisible: boolean;
+    isPanelVisible: boolean;
     onSettingsClick: () => void;
 }
 
-const Header = ({ onSettingsClick }: HeaderProps) => {
+const Header = ({ 
+    onToggleSidebar, 
+    onTogglePanel, 
+    isSidebarVisible, 
+    isPanelVisible, 
+    onSettingsClick 
+}: HeaderProps) => {
     return (
         <header className="h-10 border-b border-border bg-background/95 backdrop-blur flex items-center px-4 justify-between select-none z-50">
             {/* Window Controls / Branding */}
             <div className="flex items-center space-x-4">
-                <div className="flex gap-2 group">
-                    <div className="w-3 h-3 rounded-full bg-red-500/80 border border-red-600/20 group-hover:bg-red-500 transition-colors" />
-                    <div className="w-3 h-3 rounded-full bg-yellow-500/80 border border-yellow-600/20 group-hover:bg-yellow-500 transition-colors" />
-                    <div className="w-3 h-3 rounded-full bg-green-500/80 border border-green-600/20 group-hover:bg-green-500 transition-colors" />
-                </div>
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={onToggleSidebar} 
+                    className={cn("h-7 w-7 transition-colors", !isSidebarVisible ? "text-muted-foreground" : "text-primary")}
+                    title="Toggle Sidebar"
+                >
+                    <LayoutGrid className="w-4 h-4" />
+                </Button>
+
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={onTogglePanel} 
+                    className={cn("h-7 w-7 transition-colors", !isPanelVisible ? "text-muted-foreground" : "text-primary")}
+                    title="Toggle Bottom Panel"
+                >
+                    <Terminal className="w-4 h-4" />
+                </Button>
                 
                 <div className="h-4 w-[1px] bg-border mx-2" />
                 

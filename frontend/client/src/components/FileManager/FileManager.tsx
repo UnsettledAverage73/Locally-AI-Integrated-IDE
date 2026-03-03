@@ -200,9 +200,10 @@ export default function FileManager({ initialPath = ".", onFileOpen }: FileManag
                                     viewMode === 'list' ? "flex items-center gap-4 h-12" : "flex flex-col items-center gap-2 aspect-square justify-center"
                                 )}
                                 draggable
-                                onDragStart={(e) => {
-                                    e.dataTransfer.setData("text/plain", item.path);
-                                    // Could add drag image here
+                                onDragStart={(e: any) => {
+                                    if (e.dataTransfer) {
+                                        e.dataTransfer.setData("text/plain", item.path);
+                                    }
                                 }}
                             >
                                 <div className={cn(

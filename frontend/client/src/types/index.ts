@@ -23,6 +23,12 @@ export interface ChatMessage {
   type?: "text" | "permission_request";
 }
 
+export interface ErrorDetails {
+  filePath: string;
+  lineNumber: number;
+  errorMessage: string;
+}
+
 export interface ChatResponse {
   content: string;
   tool_calls?: ToolCall[];

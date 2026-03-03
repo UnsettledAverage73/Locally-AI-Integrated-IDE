@@ -21,7 +21,7 @@ import { llm } from "@/api/client";
 
 interface SettingsModalProps {
   isOpen: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
 }
 
 const THEMES = [
@@ -33,7 +33,7 @@ const THEMES = [
   { id: "theme-solarized-dark", name: "Solarized Dark", icon: Monitor },
 ];
 
-export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export default function SettingsModal({ isOpen, onOpenChange }: SettingsModalProps) {
   const { toast } = useToast();
   const { aiMode, setAiMode, enterpriseHost, setEnterpriseHost } = useSettings();
   const [activeTab, setActiveTab] = useState("environment");
@@ -89,7 +89,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         description: `Configuration and appearance updated. Your changes will be fully applied on the next app reload.`,
         className: "bg-green-500/10 border-green-500/50 text-green-500",
       });
-      onClose();
+      onOpenChange(false);
     } catch (error) {
       toast({
         title: "Error Saving Settings",
@@ -105,7 +105,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-light tracking-wide bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Settings</DialogTitle>
@@ -145,9 +145,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     onChange={(e) => setEnterpriseHost(e.target.value)}
                                     placeholder="http://your-company-ai.net:11434"
                                 />
-                                {connectionStatus === 'connected' && <Check className="w-5 h-5 text-green-500" title="Connected" />}
-                                {connectionStatus === 'disconnected' && <WifiOff className="w-5 h-5 text-red-500" title="Connection Failed" />}
-                                {connectionStatus === 'pending' && <Loader2 className="w-5 h-5 animate-spin" title="Testing..." />}
+                                {connectionStatus === 'connected' && <Check className="w-5 h-5 text-green-500" />}
+                                {connectionStatus === 'disconnected' && <WifiOff className="w-5 h-5 text-red-500" />}
+                                {connectionStatus === 'pending' && <Loader2 className="w-5 h-5 animate-spin" />}
                             </div>
                             <Button onClick={() => handleTestConnection(enterpriseHost)} size="sm" className="mt-2">Test Connection</Button>
                         </div>
@@ -192,7 +192,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </Tabs>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
           <Button onClick={handleSave}>Save Changes</Button>
         </DialogFooter>
       </DialogContent>

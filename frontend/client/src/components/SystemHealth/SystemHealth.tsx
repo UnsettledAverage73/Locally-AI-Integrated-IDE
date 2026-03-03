@@ -22,7 +22,7 @@ interface ModelDetails {
     }
 }
 
-const StatCard = ({ title, value, icon, unit = "" }) => (
+const StatCard = ({ title, value, icon, unit = "" }: { title: string, value: string | number, icon: React.ReactNode, unit?: string }) => (
   <Card className="bg-card/50">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
       <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>

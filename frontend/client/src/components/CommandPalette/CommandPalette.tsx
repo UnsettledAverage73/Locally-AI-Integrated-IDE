@@ -21,10 +21,13 @@ import {
   Files,
   GitBranch,
   HeartPulse,
-  Monitor
+  Monitor,
+  Globe
 } from "lucide-react";
 
 interface CommandPaletteProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
   onOpenFiles: () => void;
   onOpenFolder: () => void;
   onOpenSettings: () => void;
@@ -33,10 +36,12 @@ interface CommandPaletteProps {
   onOpenFileManager: () => void;
   onToggleSidebar: () => void;
   onSwitchTheme: (theme: string) => void;
-  onOpenView: (view: 'explorer' | 'search' | 'git' | 'system') => void;
+  onOpenView: (view: 'explorer' | 'search' | 'git' | 'system' | 'browser') => void;
 }
 
 export function CommandPalette({
+  isOpen,
+  onOpenChange,
   onOpenFiles,
   onOpenFolder,
   onOpenSettings,
@@ -47,7 +52,10 @@ export function CommandPalette({
   onSwitchTheme,
   onOpenView
 }: CommandPaletteProps) {
-  const [open, setOpen] = useState(false);
+  // Use either internal or external state
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isOpen !== undefined ? isOpen : internalOpen;
+  const setOpen = onOpenChange !== undefined ? onOpenChange : setInternalOpen;
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -55,7 +63,7 @@ export function CommandPalette({
       // We use Ctrl+P for Command Palette for now as it's common.
       if ((e.key === "p" || e.key === "P") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setOpen((open) => !open);
+        setOpen(!open);
       }
     };
 
@@ -99,6 +107,10 @@ export function CommandPalette({
           <CommandItem onSelect={() => { onOpenView('system'); setOpen(false); }}>
             <HeartPulse className="mr-2 h-4 w-4" />
             <span>Focus System Health</span>
+          </CommandItem>
+          <CommandItem onSelect={() => { onOpenView('browser'); setOpen(false); }}>
+            <Globe className="mr-2 h-4 w-4" />
+            <span>Focus Browser</span>
           </CommandItem>
         </CommandGroup>
         <CommandSeparator />

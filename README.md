@@ -144,6 +144,18 @@ Please read our [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon) for details on 
 
 ---
 
+## 🏗️ Architectural Decisions
+
+### Why Ollama?
+For the local, privacy-first IDE experience, we have chosen **Ollama** as our primary inference engine. 
+- **Privacy:** Runs entirely offline on consumer hardware. No data leaves your machine.
+- **Simplicity:** Zero-config setup for the end-user. Handles model quantization automatically.
+- **Efficiency:** Optimized for single-user local development workflows.
+
+*Note: For future high-throughput Enterprise or Private Cloud deployments, we plan to support **vLLM** as an alternative high-performance backend.*
+
+---
+
 ## 👤 Author & Credits
 
 **Made by:** [@unsettledaverage73](https://github.com/unsettledaverage73)

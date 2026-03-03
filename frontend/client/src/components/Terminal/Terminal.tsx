@@ -6,6 +6,7 @@ import { RefreshCw, Sparkles } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { optimizer, fs } from '@/api/client';
 import { toast } from '@/hooks/use-toast';
+import { ErrorDetails } from '@/types';
 
 interface TerminalProps {
   sessionId?: string;
