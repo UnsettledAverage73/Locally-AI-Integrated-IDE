@@ -1,5 +1,6 @@
 import asyncio
-from services.llm_service import mcp_manager, client
+import os
+from services.llm_service import mcp_manager, get_ollama_client
 
 FIX_PROMPT_TEMPLATE = """
 You are an expert software engineer specializing in debugging and fixing code.
@@ -40,6 +41,9 @@ class FixerService:
             )
 
             messages = [{"role": "user", "content": prompt}]
+            
+            # Use the configured Ollama client
+            client = get_ollama_client()
             
             # Using a low temperature for more deterministic code generation
             response = await client.chat(

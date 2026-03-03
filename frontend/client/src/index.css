@@ -169,6 +169,28 @@
   --ring: hsl(265 89% 78%);
 }
 
+.theme-vscode-dark {
+  --background: hsl(0 0% 12%); /* #1e1e1e */
+  --foreground: hsl(0 0% 80%); /* #cccccc */
+  --card: hsl(0 0% 9%);        /* #181818 */
+  --card-foreground: hsl(0 0% 80%);
+  --popover: hsl(0 0% 12%);
+  --popover-foreground: hsl(0 0% 90%);
+  --primary: hsl(207 70% 45%); /* #007acc */
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(0 0% 15%);
+  --secondary-foreground: hsl(0 0% 80%);
+  --muted: hsl(0 0% 15%);
+  --muted-foreground: hsl(0 0% 60%);
+  --accent: hsl(207 70% 45%);
+  --accent-foreground: hsl(0 0% 100%);
+  --destructive: hsl(0 70% 50%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(0 0% 20%);
+  --input: hsl(0 0% 15%);
+  --ring: hsl(207 70% 45%);
+}
+
 @layer base {
   * {
     @apply border-border;

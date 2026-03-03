@@ -44,18 +44,21 @@ export default function EditorTabs({
   };
 
   return (
-    <div className="flex items-center bg-[#1e1e1e] border-b border-black/20 overflow-x-auto no-scrollbar">
+    <div className="flex items-center bg-card border-b border-border/50 overflow-x-auto no-scrollbar h-9">
       {files.map((file) => (
         <div
           key={file}
           onClick={() => onTabClick(file)}
           className={cn(
-            "group flex items-center h-9 px-3 min-w-[120px] max-w-[200px] border-r border-border/10 cursor-pointer select-none text-xs transition-colors",
+            "group flex items-center h-full px-3 min-w-[120px] max-w-[220px] border-r border-border/30 cursor-pointer select-none text-xs transition-all relative",
             activeFile === file
-              ? "bg-[#1e1e1e] text-foreground border-t-2 border-t-primary"
-              : "bg-[#2d2d2d] text-muted-foreground hover:bg-[#2a2a2a] border-t-2 border-t-transparent"
+              ? "bg-background text-foreground"
+              : "bg-card/50 text-muted-foreground hover:bg-background/50"
           )}
         >
+          {activeFile === file && (
+            <div className="absolute top-0 left-0 right-0 h-[2px] bg-primary" />
+          )}
           <span className="mr-2 opacity-80">{getFileIcon(file)}</span>
           <span className="truncate flex-1 font-normal">{getFileName(file)}</span>
           <button
@@ -68,7 +71,7 @@ export default function EditorTabs({
               activeFile === file && "opacity-100" // Always show close button on active tab
             )}
           >
-            <X className="w-3 h-3" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       ))}

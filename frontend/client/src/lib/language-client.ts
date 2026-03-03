@@ -1,14 +1,19 @@
-import { MonacoLanguageClient, MessageTransports } from 'monaco-languageclient';
-import { State } from 'vscode-languageclient';
+import { MonacoLanguageClient } from 'monaco-languageclient';
+import { State, MessageTransports } from 'vscode-languageclient/lib/common/client';
+export { State };
 import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc';
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
+import * as monaco from 'monaco-editor';
 import { initialize } from 'vscode/services';
 
 export async function createLanguageClient(
     editor: monaco.editor.IStandaloneCodeEditor,
     onStateChange: (state: State) => void
 ): Promise<MonacoLanguageClient> {
-    await initialize();
+    try {
+        await initialize({});
+    } catch (e) {
+        console.error("Failed to initialize vscode services", e);
+    }
     const url = 'ws://127.0.0.1:8000/ws/lsp';
     const webSocket = new WebSocket(url);
 
@@ -25,7 +30,7 @@ export async function createLanguageClient(
             },
         },
         connectionProvider: {
-            get: (errorHandler, closeHandler) => {
+            get: () => {
                 return Promise.resolve({ reader, writer });
             }
         }

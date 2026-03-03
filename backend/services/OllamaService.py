@@ -16,7 +16,7 @@ class OllamaService:
                     pass  # Use default if config is corrupt
 
         self.host = default_host
-        self.client = AsyncClient(host=self.host)
+        self.client = AsyncClient(host=self.host, timeout=5)
 
     async def update_host(self, host: str):
         """Updates the Ollama host and checks for availability."""
@@ -24,7 +24,7 @@ class OllamaService:
             host = f"http://{host}"
 
         self.host = host
-        self.client = AsyncClient(host=self.host)  # Re-initialize client
+        self.client = AsyncClient(host=self.host, timeout=5)  # Re-initialize client
         print(f"⚡️ AI host updated to: {self.host}")
 
         # Save to a persistent config file

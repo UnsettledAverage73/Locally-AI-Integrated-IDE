@@ -13,6 +13,10 @@ from telemetry import telemetry
 import time
 import httpx
 import uuid
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Platform specific imports
 if sys.platform != "win32":
@@ -262,8 +266,13 @@ async def get_stats():
 
 # --- APP STATE (IN-MEMORY SECURITY) ---
 app_state = {
-    "mode": "local",  # 'local' or 'cloud'
-    "aws_creds": None,
+    "mode": os.getenv("MODE", "local"),  # 'local' or 'cloud'
+    "aws_creds": {
+        "access_key": os.getenv("AWS_ACCESS_KEY_ID"),
+        "secret_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+        "session_token": os.getenv("AWS_SESSION_TOKEN"),
+        "region": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+    } if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY") else None,
 }
 
 # --- SERVICE INITIALIZATION ---
@@ -271,6 +280,8 @@ ollama_service = OllamaService()
 rag_service = RAGService(ollama_service=ollama_service)
 git_service = GitService(ollama_service=ollama_service)
 optimizer = OptimizerService()
+from services.MemoryService import MemoryService
+memory_service = MemoryService(ollama_service=ollama_service, rag_service=rag_service)
 
 # --- ROUTER REGISTRATION ---
 app.include_router(files.router)
@@ -742,6 +753,9 @@ async def ollama_chat(request: ChatRequest):
 
             if user_message and assistant_message:
                 await rag_service.index_chat_turn(user_message, assistant_message)
+                if request.session_id:
+                    # Extract and store long-term memory in background
+                    asyncio.create_task(memory_service.process_turn(request.session_id, user_message, assistant_message))
 
         # --- UPDATE STATS ---
         duration_ms = (time.time() - start_time) * 1000
@@ -1157,6 +1171,10 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                                     if session and len(session.get("messages", [])) <= 2:
                                         title = messages[-1]["content"][:30] + "..." if len(messages[-1]["content"]) > 30 else messages[-1]["content"]
                                         history_service.update_session_title(session_id, title)
+                                    
+                                    # Extract and store long-term memory
+                                    user_message = messages[-1]["content"]
+                                    asyncio.create_task(memory_service.process_turn(session_id, user_message, full_response))
 
                             await websocket.send_json(chunk)
                     except asyncio.CancelledError:

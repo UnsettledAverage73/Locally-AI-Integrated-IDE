@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import re
 from ollama import AsyncClient
 from config import SCAFFOLD_SYSTEM_PROMPT
 from mcp_server.filesystem import mcp as filesystem_mcp
@@ -95,13 +97,23 @@ class MCPManager:
             return error_msg
 
 mcp_manager = MCPManager()
-client = AsyncClient()
+
+def get_ollama_client():
+    """Returns an AsyncClient configured with the current host."""
+    config_path = os.path.expanduser("~/.sovereign/config.json")
+    host = "http://localhost:11434"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            try:
+                config = json.load(f)
+                host = config.get("ollama_host", host)
+            except json.JSONDecodeError:
+                pass
+    return AsyncClient(host=host)
 
 def log_debug(msg):
     with open("debug_llm.log", "a") as f:
         f.write(f"{msg}\n")
-
-import re
 
 def _process_llm_response(response, messages):
     """
@@ -131,31 +143,18 @@ def _process_llm_response(response, messages):
             if clean_content.startswith("{") or clean_content.startswith("["):
                 log_debug(f"Attempting JSON parse on: {clean_content[:100]}...")
                 
-                # Basic cleanup: replace backticks with double quotes for keys/values
-                # This is a naive fix for models that use JS template literals
                 if "`" in clean_content:
                     log_debug("Detected backticks in JSON. Attempting to sanitize.")
                     clean_content = clean_content.replace("`", '"')
 
-                # Basic heuristic to fix unescaped newlines in JSON strings
-                # This is risky but necessary for models that output multi-line strings in JSON
-                # We want to replace newlines that are NOT between objects/keys with \n
-                # A simple regex approach: look for newlines inside quotes? Hard.
-                # Let's try `strict=False` in loads if available, but it's not.
-                # Instead, let's try to remove newlines that break the JSON.
-                
                 try:
                     data = json.loads(clean_content)
                 except json.JSONDecodeError:
-                    log_debug("Standard JSON parse failed. Trying strict=False or cleanup.")
-                    # Try cleaning up newlines: \n -> \\n
-                    # This effectively flattens the JSON but might save the string values
+                    log_debug("Standard JSON parse failed. Trying cleanup.")
                     clean_content_fixed = clean_content.replace('\n', '\\n')
                     try:
                         data = json.loads(clean_content_fixed)
                     except:
-                        # Last resort: try to find the tool call manually via regex if JSON fails completely
-                        # This handles the case where the model messed up the JSON syntax significantly
                         tool_match = re.search(r'"tool":\s*"([^"]+)",\s*"arguments":\s*(\{.*\})', clean_content, re.DOTALL)
                         if tool_match:
                             data = {
@@ -165,9 +164,6 @@ def _process_llm_response(response, messages):
                         else:
                             raise 
 
-                # Normalize single tool call vs list of calls
-                
-                # Normalize single tool call vs list of calls
                 if isinstance(data, dict):
                     tool_name = data.get('tool') or data.get('function') or data.get('name')
                     if tool_name and 'arguments' in data:
@@ -193,29 +189,22 @@ def _process_llm_response(response, messages):
             log_debug(f"Manual JSON Parse Error: {e}")
             pass
 
-    # CLEANUP: If we found tool calls and the content is primarily just the JSON,
-    # we should hide it from the user to avoid cluttering the chat.
     if tool_calls:
-        # Check if content is mostly just the JSON block
         clean_msg = msg_content.strip()
         if clean_msg.startswith("{") or clean_msg.startswith("```json"):
-            # It's a pure tool call, let's give it a nicer placeholder content
-            # The UI will show the tool call card anyway.
             msg_content = "I'll use a tool to help with that."
 
     messages.append({'role': 'assistant', 'content': msg_content})
     
-    # Check for recursion/loop (STOP condition)
     if tool_calls:
         log_debug(f"🛑 Tool calls detected: {len(tool_calls)}. Requesting approval.")
         return {
             "content": msg_content,
             "tool_calls": tool_calls,
-            "messages": messages, # Return updated history
+            "messages": messages, 
             "status": "approval_required"
         }
 
-    # If no tools, just return the content
     return {
         "content": msg_content,
         "tool_calls": [],
@@ -225,15 +214,10 @@ def _process_llm_response(response, messages):
 
 async def chat_with_tools(model: str, messages: list, options: dict = None):
     log_debug(f"Starting chat with {model}")
-    """
-    Enhanced chat handler that supports tool calling and 
-    specialized scaffolding persona.
-    """
-    # Persona injection logic
+    last_user_msg = messages[-1]['content'].lower()
     creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new", "build it", "make it", "go", "start", "execute"]
     project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script", "it", "this"]
     
-    # Check for direct creation commands or vague "do it" commands
     is_creation_intent = (any(kw in last_user_msg for kw in creation_keywords) and \
                          any(kw in last_user_msg for kw in project_keywords)) or \
                          last_user_msg.strip().lower() in ["go", "build it", "start"]
@@ -242,13 +226,11 @@ async def chat_with_tools(model: str, messages: list, options: dict = None):
     
     if is_creation_intent:
         if system_msg:
-            # Prepend Architect Persona if not already there
             if SCAFFOLD_SYSTEM_PROMPT[:50] not in system_msg['content']:
                 system_msg['content'] = SCAFFOLD_SYSTEM_PROMPT + "\n\n" + system_msg['content']
         else:
             messages.insert(0, {"role": "system", "content": SCAFFOLD_SYSTEM_PROMPT})
     else:
-        # General helper persona
         default_helper = """You are a helpful AI assistant with direct access to the computer's filesystem via tools. 
 If the user asks to see files, read files, or write a file, use the appropriate tool immediately. 
 Be robust in extracting file paths from user messages. 
@@ -275,10 +257,9 @@ You are running in a local environment trusted by the user. You are allowed to a
         else:
             messages.insert(0, {"role": "system", "content": default_helper})
     
-    # 2. Get Tools (Now includes scaffold_project)
     tools = await mcp_manager.list_tools()
+    client = get_ollama_client()
 
-    # 3. Call Ollama
     try:
         response = await client.chat(
             model=model,
@@ -288,11 +269,8 @@ You are running in a local environment trusted by the user. You are allowed to a
         )
     except Exception as e:
         error_msg = str(e)
-        # If model doesn't support tools (400 error), fallback to manual JSON parsing
         if "does not support tools" in error_msg:
             print(f"⚠️ Model {model} does not support native tools. Switching to JSON Mode.")
-            
-            # Manually inject tool definitions into system prompt
             tool_desc = json.dumps([t['function'] for t in tools], indent=2)
             manual_prompt = (
                 f"\n\nYou have access to the following tools:\n{tool_desc}\n\n"
@@ -306,31 +284,24 @@ You are running in a local environment trusted by the user. You are allowed to a
                 "}\n"
             )
             
-            # Update system prompt
             if messages[0]['role'] == 'system':
                 messages[0]['content'] += manual_prompt
             else:
                 messages.insert(0, {"role": "system", "content": manual_prompt})
                 
-            # Retry without 'tools' arg
             log_debug(f"⚠️ Retrying with JSON mode for {model}")
             response = await client.chat(
                 model=model,
                 messages=messages,
                 options=options,
-                format="json" # Force JSON mode for better parsing
+                format="json"
             )
         else:
             return {"error": f"Ollama Error: {str(e)}"}
     
-    # 4. Process Response
     return _process_llm_response(response, messages)
 
 async def execute_tool_and_continue(model: str, messages: list, tool_call: dict, approved: bool = True, options: dict = None):
-    """
-    Executes a specific tool (if approved) and continues the chat.
-    This enables the Agentic Loop: Output -> Tool -> Output -> Tool...
-    """
     if approved:
         function_name = tool_call['function']['name']
         function_args = tool_call['function']['arguments']
@@ -343,25 +314,22 @@ async def execute_tool_and_continue(model: str, messages: list, tool_call: dict,
 
     log_debug(f"Tool result: {result}")
     
-    # Append the tool result to history
     messages.append({
         'role': 'tool',
         'content': str(result),
     })
 
-    # Call Ollama again to get the final (or next) response
     try:
-        # We need to re-fetch tools in case the model wants to call another one
         tools = await mcp_manager.list_tools()
+        client = get_ollama_client()
 
         final_response = await client.chat(
             model=model,
             messages=messages,
-            tools=tools, # Pass tools again for recursion
+            tools=tools,
             options=options
         )
         
-        # Process the new response - this triggers the loop if it wants to call another tool
         return _process_llm_response(final_response, messages)
         
     except Exception as e:
@@ -378,8 +346,6 @@ async def _process_llm_stream(stream, messages):
         if content_delta:
             full_content += content_delta
             
-            # HEURISTIC: If the first characters look like JSON, stop yielding deltas
-            # and buffer them. If it turns out NOT to be a tool call, we'll yield the buffer.
             if not is_json_likely and len(full_content) < 10:
                 stripped = full_content.strip()
                 if stripped.startswith("{") or stripped.startswith("```json") or stripped.startswith("```"):
@@ -405,9 +371,6 @@ async def _process_llm_stream(stream, messages):
         if chunk.get('done'):
             break
             
-    # POST-STREAM PROCESSING
-    # If we buffered JSON and it turned out to NOT have native tool calls, 
-    # check if we can parse it as a manual tool call.
     manual_tool_calls = []
     if not tool_calls:
         try:
@@ -445,10 +408,8 @@ async def _process_llm_stream(stream, messages):
     display_content = full_content
 
     if final_tool_calls:
-        # It's a tool call! Use a placeholder and suppress the buffer
         display_content = "I'll use a tool to help with that."
     elif is_json_likely:
-        # Not a tool call, but we buffered it. Yield the whole buffer now.
         yield {"type": "content_delta", "content": buffer}
 
     messages.append({'role': 'assistant', 'content': display_content, 'tool_calls': final_tool_calls})
@@ -515,6 +476,7 @@ You are running in a local environment trusted by the user. You are allowed to a
             messages.insert(0, {"role": "system", "content": default_helper})
 
     tools = await mcp_manager.list_tools()
+    client = get_ollama_client()
 
     try:
         stream = await client.chat(
@@ -529,7 +491,6 @@ You are running in a local environment trusted by the user. You are allowed to a
 
     except Exception as e:
         error_msg = str(e)
-        # Basic error handling for streaming
         log_debug(f"Ollama Stream Error: {error_msg}")
         yield {"type": "error", "error": f"Ollama Error: {error_msg}"}
 
@@ -544,7 +505,6 @@ async def stream_execute_tool_and_continue(model: str, messages: list, tool_call
             log_debug(result)
             yield {"type": "tool_result", "result": result}
             messages.append({'role': 'tool', 'content': result})
-            # Fall through to let the model comment on the error
         else:
             log_debug(f"🔧 Executing tool: {function_name} with args {function_args}")
             result = await mcp_manager.call_tool(function_name, function_args)
@@ -562,6 +522,7 @@ async def stream_execute_tool_and_continue(model: str, messages: list, tool_call
 
     try:
         tools = await mcp_manager.list_tools()
+        client = get_ollama_client()
         stream = await client.chat(
             model=model,
             messages=messages,

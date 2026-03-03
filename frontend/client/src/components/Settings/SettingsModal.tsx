@@ -26,6 +26,7 @@ interface SettingsModalProps {
 
 const THEMES = [
   { id: "default", name: "Midnight (Default)", icon: Moon },
+  { id: "theme-vscode-dark", name: "VS Code Dark", icon: Monitor },
   { id: "theme-github-light", name: "GitHub Light", icon: Sun },
   { id: "theme-dracula", name: "Dracula", icon: Paintbrush },
   { id: "theme-monokai", name: "Monokai", icon: Monitor },

@@ -1,5 +1,5 @@
 import { GitBranch, File, Loader2, CheckCircle, XCircle } from "lucide-react";
-import { State } from 'vscode-languageclient';
+import { State } from '@/lib/language-client';
 
 interface StatusBarProps {
     currentBranch: string;

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid, Globe } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid, Globe, Blocks, ChevronDown, ChevronRight } from "lucide-react";
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import Welcome from "@/components/Editor/Welcome";
@@ -31,6 +31,8 @@ import { apiClient } from "@/api/client";
 
 import { useSettings } from "@/context/SettingsContext";
 
+import { State } from '@/lib/language-client';
+
 interface OpenFile {
   path: string;
   content: string;
@@ -47,7 +49,23 @@ function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeView, setActiveView] = useState<'explorer' | 'git' | 'system' | 'search'>('explorer');
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  const [isPanelVisible, setIsPanelVisible] = useState(true);
   const [currentBranch, setCurrentBranch] = useState("..."); // State for branch name
+  const [lspStatus, setLspStatus] = useState<State>(State.Stopped);
+  
+  const toggleSidebar = () => setIsSidebarVisible(!isSidebarVisible);
+  const togglePanel = () => setIsPanelVisible(!isPanelVisible);
+
+  const handleViewChange = (view: 'explorer' | 'git' | 'system' | 'search') => {
+    if (activeView === view && isSidebarVisible) {
+        setIsSidebarVisible(false);
+    } else {
+        setActiveView(view);
+        setIsSidebarVisible(true);
+    }
+  };
+
   const [terminalSessions, setTerminalSessions] = useState<string[]>([]);
   const [activeTerminal, setActiveTerminal] = useState<string>('');
   
@@ -256,54 +274,75 @@ function App() {
   // Initial Boot
   useEffect(() => {
     const boot = async () => {
+      console.log("🚀 Starting boot process...");
       try {
         // --- ENTERPRISE AUTO-CONNECT ---
         if (aiMode === "enterprise" && enterpriseHost) {
-            console.log(`🚀 Enterprise Mode: Attempting connection to ${enterpriseHost}`);
-            await llm.updateAIHost(enterpriseHost);
+            console.log(`📡 Enterprise Mode: Attempting connection to ${enterpriseHost}`);
+            try {
+                await llm.updateAIHost(enterpriseHost);
+                console.log("✅ AI Host updated.");
+            } catch (e) {
+                console.error("❌ Failed to update AI Host:", e);
+            }
         }
 
         // Check Ollama connection
+        console.log("🔍 Checking Ollama status...");
         const ollamaStatus = await llm.check();
         setOllamaAvailable(ollamaStatus.available);
         setHasCheckedOllama(true);
+        console.log(`✅ Ollama available: ${ollamaStatus.available}`);
 
         // Load Theme
+        console.log("🎨 Loading theme...");
         const savedTheme = localStorage.getItem("ui_theme") || "default";
         document.documentElement.className = savedTheme === "default" ? "" : savedTheme;
 
         // Fetch Ollama models
         if (ollamaStatus.available) {
+          console.log("🧠 Fetching models...");
           const { models } = await llm.models();
           setOllamaModels(models);
+          console.log(`✅ Found ${models.length} models.`);
         }
 
         // Fetch Chat History
+        console.log("📜 Fetching chat sessions...");
         await fetchChatSessions();
         if (currentSessionId) {
-            handleSelectSession(currentSessionId);
+            console.log(`💬 Loading session: ${currentSessionId}`);
+            await handleSelectSession(currentSessionId);
         }
 
         // Fetch File Tree
+        console.log(`📂 Loading file tree for: ${rootPath}`);
         const entries = await fs.getFileTree(rootPath);
         setFileTree(entries);
+        console.log(`✅ File tree loaded: ${entries.length} entries.`);
 
         // Update Watcher
+        console.log("👀 Starting file watcher...");
         await fs.watchDirectory(rootPath);
 
         // Fetch Git Branch
+        console.log("🌿 Fetching git branch...");
         try {
             const { branch } = await git.getBranch();
             setCurrentBranch(branch);
+            console.log(`✅ Current branch: ${branch}`);
         } catch (e) {
+            console.warn("⚠️ Git not available or error:", e);
             setCurrentBranch("offline");
         }
 
+        console.log("🏁 Boot process complete. Setting isBooting to false.");
         setIsBooting(false);
       } catch (error) {
+        console.error("🔥 CRITICAL BOOT ERROR:", error);
         toast({
           title: "Connection Failed",
-          description: "Could not connect to local filesystem.",
+          description: "An error occurred during startup. Check console for details.",
           variant: "destructive",
         });
         setIsBooting(false);
@@ -835,6 +874,7 @@ function App() {
     }
   };
 
+
   const handleTerminalCommand = (command: string) => {
       if (chatSocket.current && chatSocket.current.readyState === WebSocket.OPEN) {
           chatSocket.current.send(JSON.stringify({
@@ -850,6 +890,48 @@ function App() {
           });
       }
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Toggle Sidebar (Ctrl+B)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+            e.preventDefault();
+            toggleSidebar();
+        }
+        
+        // Toggle Panel (Ctrl+J or Ctrl+`)
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'j' || e.key === '`')) {
+            e.preventDefault();
+            togglePanel();
+        }
+        
+        // Focus Explorer (Ctrl+Shift+E)
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+            e.preventDefault();
+            handleViewChange('explorer');
+        }
+
+        // Focus Search (Ctrl+Shift+F)
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+            e.preventDefault();
+            handleViewChange('search');
+        }
+
+        // Focus Source Control (Ctrl+Shift+G)
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
+            e.preventDefault();
+            handleViewChange('git');
+        }
+        
+        // Save File (Ctrl+S)
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            handleSave();
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSidebarVisible, activeView, activeFile, activeFileContent, isPanelVisible]);
 
   if (isBooting) {
     return <BootScreen />;
@@ -868,29 +950,56 @@ function App() {
          {/* Main Layout */}
          <div className="flex-1 overflow-hidden flex">
           {/* Activity Bar (Leftmost Strip) */}
-          <div className="w-12 bg-card/30 border-r border-border flex flex-col items-center py-2 space-y-2">
+          <div className="w-12 bg-black/20 border-r border-border flex flex-col items-center py-2 space-y-2">
               <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-10 w-10", activeView === 'explorer' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
-                  onClick={() => setActiveView('explorer')}
-                  title="File Explorer"
+                  className={cn("h-10 w-10 rounded-none", activeView === 'explorer' && isSidebarVisible ? "text-foreground border-l-2 border-primary" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => handleViewChange('explorer')}
+                  title="File Explorer (Ctrl+Shift+E)"
               >
                   <Files className="w-5 h-5" />
               </Button>
               <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-10 w-10", activeView === 'search' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
-                  onClick={() => setActiveView('search')}
-                  title="Search"
+                  className={cn("h-10 w-10 rounded-none", activeView === 'search' && isSidebarVisible ? "text-foreground border-l-2 border-primary" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => handleViewChange('search')}
+                  title="Search (Ctrl+Shift+F)"
               >
                   <Search className="w-5 h-5" />
               </Button>
               <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-10 w-10 text-muted-foreground")}
+                  className={cn("h-10 w-10 rounded-none", activeView === 'git' && isSidebarVisible ? "text-foreground border-l-2 border-primary" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => handleViewChange('git')}
+                  title="Source Control (Ctrl+Shift+G)"
+              >
+                  <GitBranch className="w-5 h-5" />
+              </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10 rounded-none text-muted-foreground hover:text-foreground")}
+                  onClick={() => {}}
+                  title="Extensions"
+              >
+                  <Blocks className="w-5 h-5" />
+              </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10 rounded-none", activeView === 'system' && isSidebarVisible ? "text-foreground border-l-2 border-primary" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => handleViewChange('system')}
+                  title="System Health"
+              >
+                  <HeartPulse className="w-5 h-5" />
+              </Button>
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-10 w-10 rounded-none text-muted-foreground hover:text-foreground")}
                   onClick={handleOpenFileManager}
                   title="Open File Manager"
               >
@@ -899,73 +1008,104 @@ function App() {
               <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-10 w-10", activeView === 'git' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
-                  onClick={() => setActiveView('git')}
-                  title="Source Control"
-              >
-                  <GitBranch className="w-5 h-5" />
-              </Button>
-              <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-10 w-10", activeView === 'system' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
-                  onClick={() => setActiveView('system')}
-                  title="System Health"
-              >
-                  <HeartPulse className="w-5 h-5" />
-              </Button>
-              <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-10 w-10", activeFile === 'system://browser' ? "bg-accent text-accent-foreground" : "text-muted-foreground")}
+                  className={cn("h-10 w-10 rounded-none", activeFile === 'system://browser' ? "text-foreground border-l-2 border-primary" : "text-muted-foreground hover:text-foreground")}
                   onClick={handleOpenBrowser}
                   title="Web Browser"
               >
                   <Globe className="w-5 h-5" />
               </Button>
+              
+              <div className="flex-1" />
+              
+              <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 rounded-none text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsSettingsOpen(true)}
+                  title="Settings"
+              >
+                  <Settings className="w-5 h-5" />
+              </Button>
           </div>
 
           <ResizablePanelGroup direction="horizontal">
               {/* Left Sidebar: File Explorer OR Git */}
-              <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
-                  {activeView === 'explorer' && (
-                      <div className="h-full flex flex-col">
-                          <div className="p-2 flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
-                              <span>Explorer</span>
-                              <div className="flex gap-1">
-                                  <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-muted" onClick={handleOpenFiles} title="Open Files">
-                                      <FilePlus className="w-3 h-3" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-muted" onClick={handleOpenFolder} title="Open Folder">
-                                      <FolderOpen className="w-3 h-3" />
-                                  </Button>
+              {isSidebarVisible && (
+                  <>
+                      <ResizablePanel defaultSize={20} minSize={15} maxSize={30} className="bg-card/20 backdrop-blur-sm border-r border-border">
+                          {activeView === 'explorer' && (
+                              <div className="h-full flex flex-col">
+                                  <div className="p-2 flex items-center justify-between text-[11px] font-bold text-muted-foreground uppercase tracking-wider border-b border-border/50">
+                                      <span>Explorer</span>
+                                      <div className="flex gap-1">
+                                          <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-muted" onClick={handleOpenFiles} title="Open Files">
+                                              <FilePlus className="w-3 h-3" />
+                                          </Button>
+                                          <Button variant="ghost" size="icon" className="h-5 w-5 hover:bg-muted" onClick={handleOpenFolder} title="Open Folder">
+                                              <FolderOpen className="w-3 h-3" />
+                                          </Button>
+                                      </div>
+                                  </div>
+                                  
+                                  <div className="flex-1 overflow-y-auto no-scrollbar">
+                                      {/* Open Editors Section */}
+                                      {openFiles.length > 0 && (
+                                          <div className="mb-2">
+                                              <div className="flex items-center px-2 py-1 bg-muted/30 text-[10px] font-bold text-muted-foreground uppercase tracking-widest cursor-pointer group">
+                                                  <ChevronDown className="w-3 h-3 mr-1" />
+                                                  <span>Open Editors</span>
+                                              </div>
+                                              <div className="mt-1">
+                                                  {openFiles.map(file => (
+                                                      <div 
+                                                        key={file.path}
+                                                        onClick={() => setActiveFile(file.path)}
+                                                        className={cn(
+                                                            "flex items-center px-4 py-1 text-xs cursor-pointer hover:bg-accent/10 transition-colors",
+                                                            activeFile === file.path ? "bg-accent/20 text-accent-foreground" : "text-muted-foreground"
+                                                        )}
+                                                      >
+                                                          <span className="truncate">{file.path.split('/').pop()}</span>
+                                                      </div>
+                                                  ))}
+                                              </div>
+                                          </div>
+                                      )}
+
+                                      {/* Project Folder Section */}
+                                      <div className="flex items-center px-2 py-1 bg-muted/30 text-[10px] font-bold text-muted-foreground uppercase tracking-widest cursor-pointer">
+                                          <ChevronDown className="w-3 h-3 mr-1" />
+                                          <span>{rootPath.split('/').pop() || "Project"}</span>
+                                      </div>
+                                      
+                                      <div className="p-2">
+                                          {fileTree.length > 0 ? (
+                                            <FileTree 
+                                                entries={fileTree} 
+                                                onFileClick={handleFileClick} 
+                                                activeFile={activeFile} 
+                                            />
+                                          ) : (
+                                            <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+                                                <Folder className="w-8 h-8 mb-2 opacity-20" />
+                                                <p className="text-xs text-muted-foreground mb-4">No folder opened</p>
+                                                <Button variant="outline" size="sm" onClick={handleOpenFolder} className="text-xs">
+                                                    Open Folder
+                                                </Button>
+                                            </div>
+                                          )}
+                                      </div>
+                                  </div>
                               </div>
-                          </div>
-                          <div className="flex-1 overflow-y-auto p-2">
-                              {fileTree.length > 0 ? (
-                                <FileTree 
-                                    entries={fileTree} 
-                                    onFileClick={handleFileClick} 
-                                    activeFile={activeFile} 
-                                />
-                              ) : (
-                                <div className="h-full flex flex-col items-center justify-center p-4 text-center">
-                                    <Folder className="w-8 h-8 mb-2 opacity-20" />
-                                    <p className="text-xs text-muted-foreground mb-4">No folder opened</p>
-                                    <Button variant="outline" size="sm" onClick={handleOpenFolder} className="text-xs">
-                                        Open Folder
-                                    </Button>
-                                </div>
-                              )}
-                          </div>
-                      </div>
-                  )}
-                  {activeView === 'search' && <SearchPanel onFileClick={handleFileClick} />}
-                  {activeView === 'git' && <SourceControl />}
-                  {activeView === 'system' && <SystemHealth />}
-              </ResizablePanel>
-              
-              <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
+                          )}
+                          {activeView === 'search' && <SearchPanel onFileClick={handleFileClick} />}
+                          {activeView === 'git' && <SourceControl />}
+                          {activeView === 'system' && <SystemHealth />}
+                      </ResizablePanel>
+                      
+                      <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
+                  </>
+              )}
 
               {/* Center: Editor & Terminal */}
               <ResizablePanel defaultSize={55} minSize={30}>
@@ -1008,16 +1148,20 @@ function App() {
                           </div>
                       </ResizablePanel>
                       
-                      <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
-                      
-                      <ResizablePanel defaultSize={25} minSize={10}>
-                          <TerminalManager 
-                            sessions={terminalSessions}
-                            setSessions={setTerminalSessions}
-                            activeTab={activeTerminal}
-                            setActiveTab={setActiveTerminal}
-                          />
-                      </ResizablePanel>
+                      {isPanelVisible && (
+                          <>
+                              <ResizableHandle className="bg-border hover:bg-primary transition-colors" />
+                              
+                              <ResizablePanel defaultSize={25} minSize={10}>
+                                  <TerminalManager 
+                                    sessions={terminalSessions}
+                                    setSessions={setTerminalSessions}
+                                    activeTab={activeTerminal}
+                                    setActiveTab={setActiveTerminal}
+                                  />
+                              </ResizablePanel>
+                          </>
+                      )}
                   </ResizablePanelGroup>
               </ResizablePanel>
 
@@ -1052,7 +1196,12 @@ function App() {
          </div>
          
          {/* Status Bar */}
-         <StatusBar currentBranch={currentBranch} activeFile={activeFile} />
+         <StatusBar 
+            currentBranch={currentBranch} 
+            activeFile={activeFile} 
+            isIndexing={isIndexing}
+            lspStatus={lspStatus}
+         />
 
          <Toaster />
          <DownloadWidget />
@@ -1061,9 +1210,16 @@ function App() {
             onOpenFiles={handleOpenFiles}
             onOpenFolder={handleOpenFolder}
             onOpenSettings={() => setIsSettingsOpen(true)}
-            onToggleTerminal={() => {}} // Terminal toggling logic if needed
-            onOpenSearch={() => setActiveView('search')}
+            onToggleTerminal={() => {}} // Terminal toggling logic
+            onOpenSearch={() => handleViewChange('search')}
             onOpenFileManager={handleOpenFileManager}
+            onToggleSidebar={toggleSidebar}
+            onOpenView={handleViewChange}
+            onSwitchTheme={(themeId) => {
+                localStorage.setItem("ui_theme", themeId);
+                document.documentElement.className = themeId === "default" ? "" : themeId;
+                toast({ title: "Theme Switched", description: `Active theme: ${themeId}` });
+            }}
          />
       </motion.div>
     </DownloadProvider>

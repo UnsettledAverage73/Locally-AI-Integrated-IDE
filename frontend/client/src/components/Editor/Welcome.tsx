@@ -26,10 +26,10 @@ const Welcome: React.FC<WelcomeProps> = ({ onOpenFolder, onOpenFile }) => {
             >
                 <div className="text-center mb-12">
                     <h1 className="text-5xl font-bold font-display tracking-widest mb-4 bg-gradient-to-r from-accent to-purple-500 bg-clip-text text-transparent">
-                        AVERAGE
+                        LOCALDEV
                     </h1>
-                    <p className="text-muted-foreground text-lg">
-                        Local-first, privacy-focused AI development environment.
+                    <p className="text-muted-foreground text-lg font-light tracking-wide">
+                        Privacy-first, offline AI development environment.
                     </p>
                 </div>
 

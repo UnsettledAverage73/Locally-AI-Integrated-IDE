@@ -1,12 +1,26 @@
 import httpx
 import logging
 import asyncio
+import os
+import json
 
 # Configure Logging
 logger = logging.getLogger("sovereign-ide")
 logging.basicConfig(level=logging.INFO)
 
-OLLAMA_API_URL = "http://localhost:11434/api"
+def get_ollama_host():
+    config_path = os.path.expanduser("~/.sovereign/config.json")
+    default_host = "http://localhost:11434"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            try:
+                config = json.load(f)
+                return config.get("ollama_host", default_host)
+            except json.JSONDecodeError:
+                pass
+    return default_host
+
+OLLAMA_API_URL = f"{get_ollama_host()}/api"
 REQUIRED_EMBEDDING_MODEL = "nomic-embed-text"
 
 async def ensure_nomic_model():

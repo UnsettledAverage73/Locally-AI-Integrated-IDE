@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
 import { Save, BrainCircuit, Sparkles, Loader2, CheckCircle, Play, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,10 @@ const getLanguage = (filePath: string) => {
   }
 };
 
+export interface CodeEditorRef {
+  triggerSmartMerge: (modifiedCode: string) => void;
+}
+
 interface CodeEditorProps {
   content: string;
   filePath: string | null;
@@ -37,9 +41,10 @@ interface CodeEditorProps {
   isIndexing: boolean;
   onMonacoReady?: (getDiagnostics: (code: string, language: string) => Promise<any[]>) => void;
   onLspStateChange?: (state: State) => void;
+  onRun?: (path: string) => void;
 }
 
-export default function CodeEditor({
+const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(({
   content,
   filePath,
   onChange,
@@ -48,7 +53,8 @@ export default function CodeEditor({
   isIndexing,
   onMonacoReady,
   onLspStateChange,
-}: CodeEditorProps) {
+  onRun
+}, ref) => {
   const editorRef = useRef<any>(null);
   const languageClientRef = useRef<MonacoLanguageClient | null>(null);
   const [monacoInstance, setMonacoInstance] = useState<any>(null);
@@ -68,6 +74,19 @@ export default function CodeEditor({
 
   // Enable Auto-Save
   const saveStatus = useAutoSave(content, filePath || "");
+
+  useImperativeHandle(ref, () => ({
+    triggerSmartMerge: (modifiedCode: string) => {
+      if (!editorRef.current) return;
+      const editor = editorRef.current;
+      const model = editor.getModel();
+      if (!model) return;
+
+      setDiffOriginal(model.getValue());
+      setDiffModified(modifiedCode);
+      setIsDiffView(true);
+    }
+  }));
 
   const handleMagicFix = async () => {
     if (!filePath) return;
@@ -142,11 +161,7 @@ export default function CodeEditor({
       try {
           const { modified_code } = await optimizer.editSelection(filePath, selectedText, instruction);
           
-          // Check if editor is still mounted/valid
-          if (!editorRef.current) {
-              // If unmounted during await, abort
-              return;
-          }
+          if (!editorRef.current) return;
 
           const fullContent = model.getValue();
           setDiffOriginal(fullContent);
@@ -161,7 +176,7 @@ export default function CodeEditor({
           
       } catch (e: any) {
           alert("Edit Failed: " + e.message);
-          setIsInputVisible(true); // Show input again on error
+          setIsInputVisible(true); 
       } finally {
           setIsGenerating(false);
           setInstruction("");
@@ -175,7 +190,6 @@ export default function CodeEditor({
       setIsDiffView(false);
       setDiffOriginal("");
       setDiffModified("");
-      // Force focus back to editor after a short delay to ensure mount
       setTimeout(() => {
           if (editorRef.current) editorRef.current.focus();
       }, 100);
@@ -209,13 +223,12 @@ export default function CodeEditor({
             const markers = monaco.editor.getModelMarkers({ resource: tempModel.uri });
             tempModel.dispose();
             resolve(markers);
-          }, 1000); // Wait for LSP to process
+          }, 1000); 
         });
       };
       onMonacoReady(getDiagnostics);
     }
 
-    // Add keybindings
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       onSave();
     });
@@ -225,39 +238,29 @@ export default function CodeEditor({
     });
   };
 
-  // Cleanup ref on unmount
   useEffect(() => {
       return () => {
-          editorRef.current = null;
           if (languageClientRef.current) {
               languageClientRef.current.stop();
           }
       };
   }, []);
 
-  // Manage Inline Completion Provider Lifecycle
   useEffect(() => {
     if (!monacoInstance || isDiffView) return;
 
-    // Dispose previous if any
     if (completionProviderRef.current) {
         try {
             completionProviderRef.current.dispose();
-        } catch (e) {
-            console.warn("Failed to dispose completion provider", e);
-        }
+        } catch (e) {}
     }
 
     try {
-        // Register new provider
         const provider = monacoInstance.languages.registerInlineCompletionsProvider(
         { pattern: "**/*" },
         {
             provideInlineCompletions: async (model: any, position: any, context: any, token: any) => {
-            // Check if model is disposed
             if (!model || model.isDisposed()) return { items: [] };
-            
-            // Check if editor ref is valid
             if (!editorRef.current) return { items: [] };
 
             const prefix = model.getValueInRange({
@@ -312,12 +315,10 @@ export default function CodeEditor({
         if (completionProviderRef.current) {
             try {
                 completionProviderRef.current.dispose();
-            } catch (e) {
-                // ignore disposal errors on unmount
-            }
+            } catch (e) {}
         }
     };
-  }, [monacoInstance, isDiffView, filePath]); // Added filePath dependency to re-register on file change safely
+  }, [monacoInstance, isDiffView, filePath]);
 
   if (!filePath) {
     return (
@@ -331,7 +332,6 @@ export default function CodeEditor({
 
   return (
     <div className="h-full flex flex-col bg-[#1e1e1e] relative group">
-      {/* Editor Toolbar */}
       <div className="h-10 flex items-center justify-between px-4 bg-card/80 border-b border-border backdrop-blur-sm">
         <div className="flex items-center space-x-2">
             <span className="text-sm font-mono text-muted-foreground">{filePath}</span>
@@ -346,7 +346,6 @@ export default function CodeEditor({
                         onClick={handleBoilerplate}
                         disabled={isGenerating}
                         className="text-xs h-7 gap-1.5 hover:bg-blue-500/20 hover:text-blue-400 text-blue-400"
-                        title="Select a comment and click to generate code"
                     >
                         {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                         Generate
@@ -363,7 +362,6 @@ export default function CodeEditor({
                 </>
             )}
             
-            {/* Diff Actions */}
             {isDiffView && (
                 <div className="flex items-center gap-2 bg-background/50 rounded-md p-0.5 border border-border/50">
                      <Button size="sm" onClick={acceptDiff} className="h-6 text-xs bg-green-600 hover:bg-green-700 text-white gap-1">
@@ -401,7 +399,6 @@ export default function CodeEditor({
         </div>
       </div>
 
-      {/* Inline Input Widget */}
       {isInputVisible && (
           <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 w-[400px] bg-card border border-border shadow-2xl rounded-lg p-2 flex gap-2 animate-in fade-in slide-in-from-top-5">
               <Input 
@@ -422,7 +419,6 @@ export default function CodeEditor({
           </div>
       )}
 
-      {/* Editor Area */}
       <div className="flex-1 relative overflow-hidden">
         {isDiffView ? (
              <DiffEditor
@@ -444,7 +440,7 @@ export default function CodeEditor({
             height="100%"
             language={getLanguage(filePath)}
             theme="vs-dark"
-            path={filePath} // This helps Monaco reset state when file changes
+            path={filePath}
             value={content}
             onChange={onChange}
             onMount={handleEditorDidMount}
@@ -472,4 +468,7 @@ export default function CodeEditor({
       </div>
     </div>
   );
-}
+});
+
+CodeEditor.displayName = "CodeEditor";
+export default CodeEditor;

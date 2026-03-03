@@ -77,12 +77,20 @@ class RAGService:
                 self.chat_table = None
                 log_debug("Table 'chat_index' not found (will be created on first index)")
 
+            try:
+                self.memory_table = self.db.open_table("memory_index")
+                log_debug("Opened existing table 'memory_index'")
+            except Exception:
+                self.memory_table = None
+                log_debug("Table 'memory_index' not found (will be created on first memory)")
+
         except Exception as e:
             print(f"Error initializing LanceDB: {e}")
             log_debug(f"Error initializing LanceDB: {e}")
             self.db = None
             self.table = None
             self.chat_table = None
+            self.memory_table = None
 
     async def _chunk_code(self, content: str, max_chunk_size: int = 1000) -> List[Dict[str, Any]]:
         log_debug(f"Chunking content of size: {len(content)}")
@@ -253,6 +261,36 @@ class RAGService:
         except Exception as e:
             log_debug(f"Error indexing chat turn: {e}")
 
+    async def index_memory(self, content: str, category: str, session_id: str):
+        if not self.db or not self.ollama_service:
+            log_debug("Cannot index memory, DB or Ollama service not available.")
+            return
+
+        try:
+            log_debug(f"Indexing memory: {content[:50]}...")
+            embedding = await self.ollama_service.generate_embedding(content)
+
+            if not embedding:
+                log_debug("Failed to generate embedding for memory.")
+                return
+
+            record = {
+                "content": content,
+                "category": category,
+                "session_id": session_id,
+                "timestamp": asyncio.get_event_loop().time(),
+                "vector": embedding,
+            }
+
+            if not self.memory_table:
+                log_debug("Creating new LanceDB table 'memory_index'.")
+                self.memory_table = self.db.create_table("memory_index", data=[record])
+            else:
+                self.memory_table.add([record])
+            log_debug("Successfully indexed memory.")
+        except Exception as e:
+            log_debug(f"Error indexing memory: {e}")
+
     async def get_context(self, query: str, current_file: str = None, limit: int = 5) -> str:
         log_debug(f"Getting context for query: '{query}' (current_file: {current_file})")
         
@@ -288,7 +326,18 @@ class RAGService:
             for res in results:
                 chat_context.append(f"User: {res['user_message']}\nAssistant: {res['assistant_message']}")
 
+        memories_context = []
+        if self.memory_table:
+            log_debug(f"Searching memory_index with query embedding. Limit: 3")
+            results = self.memory_table.search(query_embedding).limit(3).to_list()
+            log_debug(f"Found {len(results)} results from memory_index.")
+            for res in results:
+                memories_context.append(f"[{res['category']}] {res['content']}")
+
         final_context = ""
+        if memories_context:
+            final_context += "### Relevant Long-Term Memories:\n" + "\n".join(memories_context) + "\n\n"
+
         if chat_context:
             final_context += "### Relevant Chat History:\n" + "\n---\n".join(chat_context) + "\n\n"
         
