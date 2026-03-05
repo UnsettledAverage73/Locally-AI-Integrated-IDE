@@ -13,23 +13,45 @@ const isDev = !app.isPackaged;
 let pythonProcess = null;
 let pythonLspProcess = null;
 
-function checkFrontendReady(win) {
-  const port = 5173;
+function checkServicesReady(win) {
+  const frontendPort = 5173;
+  const backendPort = 8000;
   const host = 'localhost';
-  const tryConnect = () => {
+  
+  let frontendReady = false;
+  let backendReady = false;
+
+  const tryConnect = (port, onSuccess) => {
     const socket = net.createConnection(port, host, () => {
-      console.log('Frontend server is up. Loading URL.');
-      win.loadURL('http://localhost:5173');
+      console.log(`Service on port ${port} is up.`);
+      onSuccess();
       socket.end();
     });
 
-    socket.on('error', (error) => {
-      console.log('Frontend server not up yet. Retrying in 1 second...');
-      setTimeout(tryConnect, 1000);
+    socket.on('error', () => {
+      setTimeout(() => tryConnect(port, onSuccess), 1000);
     });
   };
 
-  tryConnect();
+  tryConnect(frontendPort, () => {
+    frontendReady = true;
+    if (backendReady) {
+      console.log('All services ready. Loading URL.');
+      win.loadURL('http://localhost:5173');
+    } else {
+      console.log('Frontend ready, waiting for backend...');
+    }
+  });
+
+  tryConnect(backendPort, () => {
+    backendReady = true;
+    if (frontendReady) {
+      console.log('All services ready. Loading URL.');
+      win.loadURL('http://localhost:5173');
+    } else {
+      console.log('Backend ready, waiting for frontend...');
+    }
+  });
 }
 
 function createWindow() {
@@ -45,7 +67,7 @@ function createWindow() {
 
   // Load the React app
   if (isDev) {
-    checkFrontendReady(win);
+    checkServicesReady(win);
     win.webContents.openDevTools(); // Open DevTools in development mode
   } else {
     win.loadURL(url.format({

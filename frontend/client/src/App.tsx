@@ -61,12 +61,23 @@ export default function App() {
 
   // Initial Boot
   useEffect(() => {
-    const boot = async () => {
-      console.log("🚀 Starting boot process...");
+    const boot = async (retryCount = 0) => {
+      console.log(`🚀 Starting boot process (attempt ${retryCount + 1})...`);
       try {
-        // AI Host Init
+        // AI Host Init - with internal retry logic for this critical step
         const host = aiMode === "enterprise" && enterpriseHost ? enterpriseHost : 'http://localhost:11434';
-        await llm.updateAIHost(host);
+        
+        try {
+            await llm.updateAIHost(host);
+        } catch (hostError) {
+            console.warn("⚠️ AI Host update failed, retrying...", hostError);
+            if (retryCount < 5) {
+                setTimeout(() => boot(retryCount + 1), 2000);
+                return;
+            }
+            // If still failing after 5 retries, we continue anyway to allow the UI to load
+            console.error("❌ AI Host update failed after 5 retries. Proceeding with limited functionality.");
+        }
 
         await Promise.all([
             checkOllama(),
@@ -77,13 +88,19 @@ export default function App() {
         ]);
 
         if (currentSessionId) {
-            await selectSession(currentSessionId);
+            await selectSession(currentSessionId).catch(e => console.error("Failed to select session", e));
         }
 
         setIsBooting(false);
       } catch (error) {
         console.error("🔥 CRITICAL BOOT ERROR:", error);
+        // Even on critical error, don't leave user on boot screen forever
         setIsBooting(false);
+        toast({
+            title: "Startup Warning",
+            description: "Some services failed to start. You can still use the editor, but AI features may be limited.",
+            variant: "destructive"
+        });
       }
     };
     boot();

@@ -39,8 +39,29 @@ const USE_MOCKS = false;
 
 export const apiClient = axios.create({
   baseURL: "http://127.0.0.1:8000",
-  timeout: 5000, // 5 seconds timeout for all requests
+  timeout: 10000, // Increased timeout for robustness
 });
+
+// Simple retry interceptor
+apiClient.interceptors.response.use(
+  response => response,
+  async (error) => {
+    const { config, message } = error;
+    if (!config || !config.retry) {
+      config.retry = 0;
+    }
+    
+    const MAX_RETRIES = 3;
+    if (config.retry < MAX_RETRIES && (message.includes('Network Error') || message.includes('timeout'))) {
+      config.retry++;
+      console.log(`Retrying request (${config.retry}/${MAX_RETRIES}): ${config.url}`);
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, config.retry * 1000));
+      return apiClient(config);
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const fs = {
   readDirectory: async (path: string): Promise<{ entries: FileEntry[] }> => {
@@ -329,5 +350,17 @@ export const optimizer = {
         const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
         const { data } = await apiClient.post("/fs/edit_selection", { file_path: filePath, selected_code: selectedCode, instruction, model });
         return data;
+        }
+        };
+
+        export const cloud = {
+    discover: async (): Promise<{ results: { host: string; port: number; url: string; available: boolean; models: string[] }[] }> => {
+        const { data } = await apiClient.get("/cloud/discover");
+        return data;
+    },
+    provision: async (aws_access_key: string, aws_secret_key: string, aws_session_token: string, region: string = "us-east-1"): Promise<{ status: string; instance_id: string; public_ip: string; url: string; message: string }> => {
+        const { data } = await apiClient.post("/cloud/provision", { aws_access_key, aws_secret_key, aws_session_token, region });
+        return data;
     }
 };
+

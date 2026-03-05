@@ -34,7 +34,7 @@ from git_service import GitService
 from optimizer_service import OptimizerService
 from services.llm_service import chat_with_tools, execute_tool_and_continue, stream_chat_with_tools, stream_execute_tool_and_continue
 from services.model_loader import ensure_nomic_model
-from routers import files, search
+from routers import files, search, chat, cloud
 from file_watcher import start_watcher
 from services.chat_history import history_service
 
@@ -286,6 +286,8 @@ memory_service = MemoryService(ollama_service=ollama_service, rag_service=rag_se
 # --- ROUTER REGISTRATION ---
 app.include_router(files.router)
 app.include_router(search.router, prefix="/search", tags=["search"])
+app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(cloud.router, prefix="/cloud", tags=["cloud"])
 
 # --- DATA MODELS ---
 

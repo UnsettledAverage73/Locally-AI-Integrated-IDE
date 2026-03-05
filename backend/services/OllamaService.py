@@ -69,9 +69,28 @@ class OllamaService:
         )
         return response["response"]
 
-    async def generate_embedding(self, text: str):
-        response = await self.client.embeddings(model="nomic-embed-text", prompt=text)
-        return response["embedding"]
+    async def generate_embedding(self, text):
+        """Generates embeddings for a single text or a list of texts (batching)."""
+        model = "nomic-embed-text"
+        try:
+            # Try the modern 'embed' API first (Ollama 0.2.x+)
+            response = await self.client.embed(model=model, input=text)
+            if isinstance(text, str):
+                return response["embeddings"][0]
+            return response["embeddings"]
+        except Exception as e:
+            # Fallback to legacy 'embeddings' API
+            print(f"⚠️ 'embed' API failed ({e}), falling back to legacy 'embeddings' API...")
+            if isinstance(text, str):
+                response = await self.client.embeddings(model=model, prompt=text)
+                return response["embedding"]
+            else:
+                # Batch process for legacy API (sequential)
+                results = []
+                for t in text:
+                    resp = await self.client.embeddings(model=model, prompt=t)
+                    results.append(resp["embedding"])
+                return results
 
     async def show_model_info(self, model_name: str):
         return await self.client.show(model_name)
