@@ -17,4 +17,5 @@ pygls
 jedi
 PyYAML
 tree-sitter>=0.20.0
+bs4
 tree-sitter-language-pack==0.13.0

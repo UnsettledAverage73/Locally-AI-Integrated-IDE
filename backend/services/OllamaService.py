@@ -7,15 +7,19 @@ class OllamaService:
     def __init__(self):
         config_path = os.path.expanduser("~/.sovereign/config.json")
         default_host = "http://localhost:11434"
+        default_model = "qwen2.5:0.5b"
+        
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
                 try:
                     config = json.load(f)
                     default_host = config.get("ollama_host", default_host)
+                    default_model = config.get("active_model", default_model)
                 except json.JSONDecodeError:
                     pass  # Use default if config is corrupt
 
         self.host = default_host
+        self.active_model = default_model
         self.client = AsyncClient(host=self.host, timeout=5)
 
     async def update_host(self, host: str):
@@ -28,12 +32,27 @@ class OllamaService:
         print(f"⚡️ AI host updated to: {self.host}")
 
         # Save to a persistent config file
-        config_path = os.path.expanduser("~/.sovereign/config.json")
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, "w") as f:
-            json.dump({"ollama_host": self.host}, f)
+        self._save_config()
 
         return await self.check_connection()
+
+    def _save_config(self):
+        """Internal helper to save current configuration to disk."""
+        config_path = os.path.expanduser("~/.sovereign/config.json")
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        config = {
+            "ollama_host": self.host,
+            "active_model": self.active_model
+        }
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+    async def set_active_model(self, model_name: str):
+        """Sets and persists the active model."""
+        self.active_model = model_name
+        self._save_config()
+        print(f"🎯 Active model set to: {self.active_model}")
+        return True
 
     async def check_connection(self):
         try:
@@ -71,7 +90,7 @@ class OllamaService:
 
     async def generate_embedding(self, text):
         """Generates embeddings for a single text or a list of texts (batching)."""
-        model = "nomic-embed-text"
+        model = "nomic-embed-text:latest"
         try:
             # Try the modern 'embed' API first (Ollama 0.2.x+)
             response = await self.client.embed(model=model, input=text)

@@ -303,7 +303,10 @@ class ChatRequest(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     title: str | None = "New Chat"
-    model: str | None = "qwen2.5:0.5b"
+    model: str | None = None
+
+class ActiveModelRequest(BaseModel):
+    model: str
 
 class MemoryRequest(BaseModel):
     content: str
@@ -397,7 +400,8 @@ async def get_session(session_id: str):
 
 @app.post("/chat/sessions")
 async def create_session(request: CreateSessionRequest):
-    session_id = history_service.create_session(request.title, request.model)
+    model = request.model or ollama_service.active_model
+    session_id = history_service.create_session(request.title, model)
     return {"session_id": session_id}
 
 @app.delete("/chat/sessions/{session_id}")
@@ -434,7 +438,20 @@ async def update_config(request: ConfigRequest):
 
 @app.get("/config/status")
 async def get_config_status():
-    return {"mode": app_state["mode"], "has_keys": app_state["aws_creds"] is not None}
+    return {
+        "mode": app_state["mode"], 
+        "has_keys": app_state["aws_creds"] is not None,
+        "active_model": ollama_service.active_model,
+        "ollama_host": ollama_service.host
+    }
+
+@app.post("/config/active-model")
+async def update_active_model(request: ActiveModelRequest):
+    try:
+        await ollama_service.set_active_model(request.model)
+        return {"status": "success", "active_model": ollama_service.active_model}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/config/env")
 async def update_env_config(request: EnvConfigRequest):
@@ -691,6 +708,7 @@ async def run_benchmark(request: Dict[str, Any] = None):
 @app.post("/ollama/chat")
 async def ollama_chat(request: ChatRequest):
     """Smart Chat Handler: Decides between Local (Ollama) or Cloud (Bedrock)."""
+    model = request.model or ollama_service.active_model
     start_time = time.time()
     try:
         if app_state["mode"] == "cloud" and app_state["aws_creds"]:
@@ -713,7 +731,7 @@ async def ollama_chat(request: ChatRequest):
                 response = {"error": f"Cloud Error: {str(e)}"}
                 raise HTTPException(status_code=500, detail=response["error"])
         else:
-            print("💻 Using Local Brain (Ollama with Tools)...")
+            print(f"💻 Using Local Brain (Ollama with {model})...")
             
             # --- RAG RETRIEVAL ---
             # Extract the user's last query
@@ -734,8 +752,9 @@ async def ollama_chat(request: ChatRequest):
                     request.messages.insert(0, {"role": "system", "content": f"You are a helpful AI assistant.{context_msg}"})
             
             response = await chat_with_tools(
-                request.model, request.messages, request.options
+                model, request.messages, request.options
             )
+
 
         # Index the chat turn for RAG
         if response and not response.get("error"):
@@ -996,10 +1015,12 @@ async def proxy_url(url: str):
 
 @app.post("/files/optimize")
 def optimize_file_endpoint(req: OptimizeRequest):
-    return optimizer.optimize_file(req.file_path, req.instruction, req.model)
+    model = req.model or ollama_service.active_model
+    return optimizer.optimize_file(req.file_path, req.instruction, model)
 
 @app.post("/fs/edit_selection")
 async def edit_selection_endpoint(req: EditCodeRequest):
+    model = req.model or ollama_service.active_model
     prompt = f"""You are an expert code editor.
     
 Your task is to rewrite the following code snippet based on the user's instruction.
@@ -1015,7 +1036,8 @@ Modified Code:"""
     
     # Use the chat API for better instruction following than 'complete'
     messages = [{"role": "user", "content": prompt}]
-    response = await chat_with_tools(req.model, messages)
+    response = await chat_with_tools(model, messages)
+
     
     # Clean up the response if it has markdown
     content = response.get("content", "")
@@ -1132,8 +1154,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                 if current_task and not current_task.done():
                     current_task.cancel()
 
-                model = data.get("model", "qwen2.5:0.5b")
+                model = data.get("model") or ollama_service.active_model
                 messages = data.get("messages", [])
+
                 session_id = data.get("session_id")
                 options = data.get("options", {})
 
@@ -1190,8 +1213,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                 if current_task and not current_task.done():
                     current_task.cancel()
 
-                model = data.get("model", "qwen2.5:0.5b")
+                model = data.get("model") or ollama_service.active_model
                 messages = data.get("messages", [])
+
                 tool_call = data.get("tool_call")
                 approved = data.get("approved")
                 options = data.get("options", {})
