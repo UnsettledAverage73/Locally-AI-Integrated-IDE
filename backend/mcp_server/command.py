@@ -18,14 +18,17 @@ def run_shell_command(command: str) -> str:
     output, _ = run_shell_command_with_code(command)
     return output
 
-def run_shell_command_with_code(command: str) -> tuple[str, int]:
+def run_shell_command_with_code(command: str, cwd: str = None) -> tuple[str, int]:
     """
     Run a terminal command and return both output and exit code.
+    Allows specifying the working directory.
     """
+    if cwd is None:
+        cwd = os.getcwd()
     try:
         process = subprocess.run(
             command,
-            cwd=os.getcwd(),
+            cwd=cwd,
             shell=True,
             capture_output=True,
             text=True

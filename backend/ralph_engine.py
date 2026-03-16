@@ -53,6 +53,10 @@ class RalphEngine:
         composite_prompt = f"""
 ### RALPH LOOP ITERATION #{iteration_count} ###
 
+**ENVIRONMENT ISOLATION:**
+Your current working directory is: `{os.path.abspath(self.work_dir)}`
+ALL files you create, read, or execute MUST be relative to this path or using absolute paths to this directory.
+
 **OBJECTIVE (from PRD):**
 {prd}
 
@@ -123,8 +127,9 @@ Use your tools to explore, write code, and run tests.
         verify_script = os.path.join(self.work_dir, "verify.sh")
         if os.path.exists(verify_script):
             self.log(f"🏃 Running verification script: {verify_script}")
-            # REFACTOR: Capture the actual OS exit code
-            stdout, exit_code = run_shell_command_with_code(f"bash {verify_script}")
+            # REFACTOR: Capture the actual OS exit code and run in the work_dir
+            # We use the filename only because we are setting the cwd to work_dir
+            stdout, exit_code = run_shell_command_with_code(f"bash {os.path.basename(verify_script)}", cwd=self.work_dir)
             self.log(f"Verification Output:\n{stdout}")
             
             # Unix standard: 0 means success. Anything else is a failure.
