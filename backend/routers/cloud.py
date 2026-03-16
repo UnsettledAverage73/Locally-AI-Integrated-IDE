@@ -25,10 +25,99 @@ class ProvisionRequest(BaseModel):
     instance_type: str = "t3.small"
     storage_gb: int = 20
 
+class InstanceActionRequest(BaseModel):
+    aws_access_key: str
+    aws_secret_key: str
+    aws_session_token: Optional[str] = None
+    region: str = "us-east-1"
+    instance_id: str
+
+class UpdateStorageRequest(BaseModel):
+    aws_access_key: str
+    aws_secret_key: str
+    aws_session_token: Optional[str] = None
+    region: str = "us-east-1"
+    instance_id: str
+    new_storage_gb: int
+
 @router.post("/provision", summary="Provision an AWS EC2 instance for LocalDev")
 async def provision_cloud_instance(request: ProvisionRequest):
     # This is a stub for the REST endpoint, the logic is in the websocket
     return {"message": "Please use the websocket endpoint for provisioning to see live logs."}
+
+@router.post("/terminate", summary="Terminate an AWS EC2 instance")
+async def terminate_cloud_instance(request: InstanceActionRequest):
+    try:
+        ec2 = boto3.client(
+            'ec2',
+            aws_access_key_id=request.aws_access_key,
+            aws_secret_access_key=request.aws_secret_key,
+            aws_session_token=request.aws_session_token,
+            region_name=request.region
+        )
+        ec2.terminate_instances(InstanceIds=[request.instance_id])
+        return {"status": "success", "message": f"Termination signal sent to {request.instance_id}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/update-storage", summary="Expand EBS volume for an instance")
+async def update_cloud_storage(request: UpdateStorageRequest):
+    try:
+        ec2 = boto3.client(
+            'ec2',
+            aws_access_key_id=request.aws_access_key,
+            aws_secret_access_key=request.aws_secret_key,
+            aws_session_token=request.aws_session_token,
+            region_name=request.region
+        )
+        # 1. Get volume ID
+        response = ec2.describe_instances(InstanceIds=[request.instance_id])
+        volumes = response['Reservations'][0]['Instances'][0].get('BlockDeviceMappings', [])
+        if not volumes:
+            raise HTTPException(status_code=404, detail="No volumes found for instance")
+        
+        volume_id = volumes[0]['Ebs']['VolumeId']
+        
+        # 2. Modify volume
+        ec2.modify_volume(VolumeId=volume_id, Size=request.new_storage_gb)
+        
+        return {
+            "status": "success", 
+            "message": f"Volume {volume_id} expansion to {request.new_storage_gb}GB requested.",
+            "note": "The OS may need a manual 'resize2fs' or 'xfs_growfs' to see the new space."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/list-instances", summary="List LocalDev cloud instances")
+async def list_cloud_instances(request: ProvisionRequest):
+    # We use ProvisionRequest just for the credentials/region
+    try:
+        ec2 = boto3.client(
+            'ec2',
+            aws_access_key_id=request.aws_access_key,
+            aws_secret_access_key=request.aws_secret_key,
+            aws_session_token=request.aws_session_token,
+            region_name=request.region
+        )
+        response = ec2.describe_instances(
+            Filters=[{'Name': 'tag:Name', 'Values': ['LocalDev-AI-Cloud']}]
+        )
+        
+        instances = []
+        for res in response.get('Reservations', []):
+            for inst in res.get('Instances', []):
+                instances.append({
+                    "instance_id": inst['InstanceId'],
+                    "state": inst['State']['Name'],
+                    "public_ip": inst.get('PublicIpAddress'),
+                    "type": inst['InstanceType'],
+                    "launch_time": inst['LaunchTime'].isoformat()
+                })
+        
+        return {"instances": instances}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # User data script update for better performance
 OPTIMIZED_USER_DATA = """#!/bin/bash
