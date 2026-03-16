@@ -34,6 +34,7 @@ from git_service import GitService
 from optimizer_service import OptimizerService
 from services.llm_service import chat_with_tools, execute_tool_and_continue, stream_chat_with_tools, stream_execute_tool_and_continue
 from services.model_loader import ensure_nomic_model
+from ralph_engine import RalphEngine
 from routers import files, search, chat, cloud
 from file_watcher import start_watcher
 from services.chat_history import history_service
@@ -384,6 +385,11 @@ class ProposeFixRequest(BaseModel):
     line_number: int
     error_message: str
 
+class RalphRequest(BaseModel):
+    model: str | None = None
+    max_iterations: int = 10
+    work_dir: str = "."
+
 
 # --- CHAT HISTORY ENDPOINTS ---
 
@@ -594,6 +600,71 @@ async def git_pull():
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- RALPH ENGINE (AUTONOMOUS LOOP) ---
+ralph_active_tasks = {}
+
+@app.post("/ralph/start")
+async def start_ralph_loop(request: RalphRequest):
+    model = request.model or ollama_service.active_model
+    work_dir = request.work_dir
+    
+    # Ensure directory exists
+    os.makedirs(work_dir, exist_ok=True)
+    
+    task_id = str(uuid.uuid4())
+    engine = RalphEngine(model=model, work_dir=work_dir)
+    
+    async def run_in_background():
+        try:
+            ralph_active_tasks[task_id]["status"] = "running"
+            await engine.start(max_iterations=request.max_iterations)
+            ralph_active_tasks[task_id]["status"] = "completed"
+        except Exception as e:
+            print(f"Ralph Task {task_id} Error: {e}")
+            ralph_active_tasks[task_id]["status"] = "error"
+            ralph_active_tasks[task_id]["error"] = str(e)
+
+    task = asyncio.create_task(run_in_background())
+    ralph_active_tasks[task_id] = {
+        "task": task,
+        "status": "pending",
+        "work_dir": work_dir,
+        "model": model,
+        "start_time": time.time()
+    }
+    
+    return {"task_id": task_id, "status": "started", "work_dir": work_dir}
+
+@app.get("/ralph/status/{task_id}")
+async def get_ralph_status(task_id: str):
+    if task_id not in ralph_active_tasks:
+        raise HTTPException(status_code=404, detail="Ralph task not found")
+    
+    task_info = ralph_active_tasks[task_id]
+    work_dir = task_info["work_dir"]
+    
+    # Read the log file to get the latest progress
+    log_path = os.path.join(work_dir, "ralph_log.txt")
+    logs = ""
+    if os.path.exists(log_path):
+        with open(log_path, "r") as f:
+            # Get last 20 lines of logs
+            lines = f.readlines()
+            logs = "".join(lines[-20:])
+            
+    progress_path = os.path.join(work_dir, "progress.txt")
+    progress = ""
+    if os.path.exists(progress_path):
+        with open(progress_path, "r") as f:
+            progress = f.read()
+
+    return {
+        "status": task_info["status"],
+        "logs": logs,
+        "current_progress": progress,
+        "error": task_info.get("error")
+    }
 
 # --- OLLAMA / CHAT ENDPOINTS ---
 
