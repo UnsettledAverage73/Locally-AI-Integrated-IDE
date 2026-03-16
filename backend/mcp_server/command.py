@@ -15,13 +15,17 @@ def run_shell_command(command: str) -> str:
     Returns:
         The command output or an error message.
     """
+    output, _ = run_shell_command_with_code(command)
+    return output
+
+def run_shell_command_with_code(command: str) -> tuple[str, int]:
+    """
+    Run a terminal command and return both output and exit code.
+    """
     try:
-        # Security Note: shell=True is dangerous. 
-        # In a real app, we should sandbox this or use a safe execution environment.
-        # For this local dev tool, we assume the user trusts the tool they are running locally.
         process = subprocess.run(
             command,
-            cwd=os.getcwd(), # Run in current working directory of the backend (project root)
+            cwd=os.getcwd(),
             shell=True,
             capture_output=True,
             text=True
@@ -29,6 +33,6 @@ def run_shell_command(command: str) -> str:
         output = process.stdout
         if process.stderr:
             output += f"\nStderr: {process.stderr}"
-        return output
+        return output, process.returncode
     except Exception as e:
-        return f"Error executing command: {str(e)}"
+        return f"Error executing command: {str(e)}", 1

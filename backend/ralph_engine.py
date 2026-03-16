@@ -9,7 +9,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from services.llm_service import chat_with_tools, execute_tool_and_continue
-from mcp_server.command import run_shell_command
+from mcp_server.command import run_shell_command_with_code
 
 class RalphEngine:
     def __init__(self, model="qwen2.5:0.5b", work_dir="."):
@@ -35,6 +35,10 @@ class RalphEngine:
 
     def write_file_safe(self, file_path, content):
         with open(file_path, "w") as f:
+            f.write(content)
+
+    def append_file_safe(self, file_path, content):
+        with open(file_path, "a") as f:
             f.write(content)
 
     async def run_iteration(self, iteration_count):
@@ -96,7 +100,8 @@ Use your tools to explore, write code, and run tests.
 
         # 3. Capture result and update progress.txt
         final_content = response.get("content", "No response content.")
-        self.write_file_safe(self.progress_file, f"Iteration {iteration_count} Result:\n{final_content}")
+        # REFACTOR: APPEND to the file to preserve history
+        self.append_file_safe(self.progress_file, f"\n--- Iteration {iteration_count} Result ---\n{final_content}\n")
         self.log(f"✅ Iteration {iteration_count} complete.")
         return final_content
 
@@ -118,14 +123,16 @@ Use your tools to explore, write code, and run tests.
         verify_script = os.path.join(self.work_dir, "verify.sh")
         if os.path.exists(verify_script):
             self.log(f"🏃 Running verification script: {verify_script}")
-            result = run_shell_command(f"bash {verify_script}")
-            self.log(f"Verification Output:\n{result}")
+            # REFACTOR: Capture the actual OS exit code
+            stdout, exit_code = run_shell_command_with_code(f"bash {verify_script}")
+            self.log(f"Verification Output:\n{stdout}")
             
-            # Simple heuristic: if the script exits with success, we are done
-            # Note: run_shell_command as implemented doesn't return exit code easily, 
-            # but we could modify it or look for "Error" in output.
-            if "FAIL" not in result.upper() and "ERROR" not in result.upper():
+            # Unix standard: 0 means success. Anything else is a failure.
+            if exit_code == 0:
+                self.log("✅ Verification script PASSED.")
                 return True
+            else:
+                self.log(f"❌ Verification script FAILED (exit code: {exit_code}).")
         
         return False
 
@@ -139,11 +146,13 @@ Use your tools to explore, write code, and run tests.
                 self.log("🎊 MISSION ACCOMPLISHED! Loop terminating.")
                 break
             
-            self.log("⚠️ Outcome not achieved. Relentlessly trying again...")
-            # Optional: Add a small delay between iterations
-            await asyncio.sleep(2)
+            # REFACTOR: Dynamic thermal/rate-limit cooldown
+            sleep_time = min(2 * i, 15) 
+            self.log(f"⚠️ Outcome not achieved. Sleeping for {sleep_time}s before next iteration...")
+            await asyncio.sleep(sleep_time)
         else:
             self.log("❌ Max iterations reached without achieving outcome.")
+
 
 if __name__ == "__main__":
     # Example usage: python ralph_engine.py --model qwen2.5:0.5b

@@ -624,6 +624,11 @@ async def start_ralph_loop(request: RalphRequest):
             print(f"Ralph Task {task_id} Error: {e}")
             ralph_active_tasks[task_id]["status"] = "error"
             ralph_active_tasks[task_id]["error"] = str(e)
+        finally:
+            # REFACTOR: Prevent memory leak by removing the task reference
+            # We keep the status/logs for the frontend to query, but drop the heavy object
+            if task_id in ralph_active_tasks and "task" in ralph_active_tasks[task_id]:
+                del ralph_active_tasks[task_id]["task"]
 
     task = asyncio.create_task(run_in_background())
     ralph_active_tasks[task_id] = {
