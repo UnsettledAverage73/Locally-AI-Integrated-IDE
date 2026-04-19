@@ -135,30 +135,32 @@ async def lifespan(app: FastAPI):
     # --- STARTUP LOGIC ---
     print("🚀 Sovereign IDE Starting up...")
     
-    # 1. Provision Nomic Model
-    print("🧠 Checking Neural Resources...")
-    success = await ensure_nomic_model()
-    
-    if not success:
-        print("❌ CRITICAL WARNING: Embedding model failed to load. RAG features will be broken.")
-    else:
-        print("✅ Neural Resources Active.")
+    # 1. Background Provisioning (Non-blocking)
+    # We start it as a task so the IDE loads immediately
+    async def provision_bg():
+        print("🧠 Checking Neural Resources in background...")
+        success = await ensure_nomic_model()
+        if not success:
+            print("❌ CRITICAL WARNING: Embedding model failed to load. RAG features will be broken.")
+        else:
+            print("✅ Neural Resources Active.")
 
-    # 2. Start File Watcher
+    provision_task = asyncio.create_task(provision_bg())
+
+    # 2. Parallel initialization of services
     global file_observer
     try:
         loop = asyncio.get_running_loop()
-        # Watch the current directory
+        # Start file watcher and terminal cleanup in parallel
         file_observer = start_watcher(".", loop, manager.broadcast)
-        print("👀 File Watcher Started on root directory.")
+        print("👀 File Watcher Started.")
+        
+        asyncio.create_task(terminal_manager.cleanup_inactive_sessions())
+        print("🧹 Terminal session cleanup task started.")
     except Exception as e:
-        print(f"⚠️ Failed to start file watcher: {e}")
+        print(f"⚠️ Failed to start background services: {e}")
 
-    # 3. Start Terminal Session Cleanup Task
-    cleanup_task = asyncio.create_task(terminal_manager.cleanup_inactive_sessions())
-    print("🧹 Terminal session cleanup task started.")
-
-    # 4. Start LSP Process
+    # 3. Fast LSP Spawn
     global lsp_process
     try:
         lsp_process = await asyncio.create_subprocess_exec(
@@ -173,31 +175,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Failed to start LSP process: {e}")
 
-
     yield
 
     # --- SHUTDOWN LOGIC ---
     print("🛑 Shutting down...")
-    
-    # Clean up all active terminal sessions
-    for session_id in list(terminal_manager.sessions.keys()):
-        terminal_manager.remove_session(session_id)
-
-    if file_observer:
-        print("🛑 Stopping File Watcher...")
-        file_observer.stop()
-        file_observer.join()
-    
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        print("🧹 Terminal session cleanup task cancelled.")
-    
-    if lsp_process and lsp_process.returncode is None:
-        print("🛑 Stopping Language Server Process...")
-        lsp_process.kill()
-        await lsp_process.wait()
+    provision_task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 

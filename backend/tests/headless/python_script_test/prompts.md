@@ -1,0 +1,1 @@
+Create a python script called 'calc.py' that adds 2 and 2. Run it and ensure the output is 4. Then output the tag <outcome_achieved>.

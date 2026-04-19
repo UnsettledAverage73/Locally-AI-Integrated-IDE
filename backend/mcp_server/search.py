@@ -25,7 +25,7 @@ def _is_binary_ext(path: str) -> bool:
     return ext.lower() in IGNORE_EXTS
 
 @mcp.tool()
-def search_filenames(pattern: str, root_path: str = ".") -> str:
+def glob(pattern: str, root_path: str = ".") -> str:
     """
     Search for files by name using a glob pattern.
     
@@ -55,8 +55,12 @@ def search_filenames(pattern: str, root_path: str = ".") -> str:
     except Exception as e:
         return f"❌ Error searching filenames: {str(e)}"
 
+
+def search_filenames(pattern: str, root_path: str = ".") -> str:
+    return glob(pattern, root_path)
+
 @mcp.tool()
-def search_text(query: str, root_path: str = ".") -> str:
+def grep_search(query: str, root_path: str = ".") -> str:
     """
     Search for a text string or regex pattern in file contents.
     
@@ -118,6 +122,10 @@ def search_text(query: str, root_path: str = ".") -> str:
 
     except Exception as e:
         return f"❌ Error searching text: {str(e)}"
+
+
+def search_text(query: str, root_path: str = ".") -> str:
+    return grep_search(query, root_path)
 
 if __name__ == "__main__":
     mcp.run()

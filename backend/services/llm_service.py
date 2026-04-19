@@ -10,6 +10,7 @@ from mcp_server.github import mcp as github_mcp
 from mcp_server.search import mcp as search_mcp
 from mcp_server.browser import mcp as browser_mcp
 from mcp_server.ollama import mcp as ollama_mcp
+from mcp_server.subagents import mcp as subagents_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -23,7 +24,8 @@ class MCPManager:
         search_tools = await search_mcp.list_tools()
         browser_tools = await browser_mcp.list_tools()
         ollama_tools = await ollama_mcp.list_tools()
-        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + ollama_tools
+        subagent_tools = await subagents_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + ollama_tools + subagent_tools
         
         tools = []
         for tool in all_tools:
@@ -70,7 +72,12 @@ class MCPManager:
                                 result = await ollama_mcp.call_tool(name, arguments)
                             else:
                                 # Check Search tools
-                                result = await search_mcp.call_tool(name, arguments)
+                                search_tools = await search_mcp.list_tools()
+                                if any(t.name == name for t in search_tools):
+                                    result = await search_mcp.call_tool(name, arguments)
+                                else:
+                                    # Fallback to subagents
+                                    result = await subagents_mcp.call_tool(name, arguments)
             
             # Extract text from the result
             output = []
@@ -120,7 +127,7 @@ def _process_llm_response(response, messages):
     Helper to parse LLM response for tool calls (native or JSON)
     and determine the next state.
     """
-    msg_content = response['message']['content']
+    msg_content = response['message'].get('content') or ""
     log_debug(f"LLM Response Content: {msg_content}")
     
     tool_calls = response['message'].get('tool_calls')

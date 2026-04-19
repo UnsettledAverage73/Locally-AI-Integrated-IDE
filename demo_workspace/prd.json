@@ -1,0 +1,4 @@
+{
+  "project_name": "Fibonacci Fixer",
+  "goal": "Ensure fibonacci.py correctly calculates the 10th Fibonacci number (55) and passes verify.sh."
+}

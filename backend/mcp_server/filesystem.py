@@ -69,6 +69,36 @@ def write_file(path: str, content: str) -> str:
     except Exception as e:
         return f"❌ Error writing file: {str(e)}"
 
+@mcp.tool()
+def replace(path: str, old_string: str, new_string: str) -> str:
+    """
+    Replaces exact occurrences of old_string with new_string in a file.
+
+    Args:
+        path: The path to the file.
+        old_string: The exact string to find.
+        new_string: The exact string to replace it with.
+    """
+    try:
+        full_path = os.path.abspath(path)
+        if not os.path.exists(full_path):
+            return f"❌ Error: File not found at {path}"
+            
+        with open(full_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        if old_string not in content:
+            return f"❌ Error: old_string not found in {path}"
+            
+        new_content = content.replace(old_string, new_string)
+        
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+            
+        return f"✅ Successfully replaced text in {path}"
+    except Exception as e:
+        return f"❌ Error replacing text: {str(e)}"
+
 
 @mcp.tool()
 def scaffold_project(base_path: str, file_structure: Any) -> str:
