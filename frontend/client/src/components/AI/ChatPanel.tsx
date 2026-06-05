@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X, Settings, Info, LayoutGrid, Square, Globe, History, Plus } from "lucide-react";
+import { Send, Bot, User, Sparkles, Eraser, Play, AlertTriangle, Check, X, Settings, Info, LayoutGrid, Square, Globe, History, Plus, Paperclip, Image as ImageIcon, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage, ToolCall } from "../../types";
@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { rag } from "../../api/client";
 import ChatHistory from "./ChatHistory";
+import ComposerOverlay from "./ComposerOverlay";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,7 +17,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, images?: string[]) => void;
   onCommand: (command: string, args: string) => void;
   onStopGeneration: () => void;
   onRemoveContext: () => void;
@@ -59,6 +60,7 @@ export default function ChatPanel({
   onDeleteSession
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
   const [showCommands, setShowCommands] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -68,6 +70,7 @@ export default function ChatPanel({
     { name: "clear", description: "Clear chat history", icon: <Eraser className="w-3.5 h-3.5" /> },
     { name: "fix", description: "Propose a fix for the current file", icon: <Sparkles className="w-3.5 h-3.5" /> },
     { name: "explain", description: "Explain the current file", icon: <Bot className="w-3.5 h-3.5" /> },
+    { name: "compose", description: "Multi-file architect mode", icon: <Layers className="w-3.5 h-3.5" /> },
     { name: "test", description: "Generate tests for the current file", icon: <Play className="w-3.5 h-3.5" /> },
     { name: "index", description: "Index current file for context", icon: <Sparkles className="w-3.5 h-3.5" /> },
     { name: "index-all", description: "Index entire project", icon: <LayoutGrid className="w-3.5 h-3.5" /> },
@@ -99,9 +102,25 @@ export default function ChatPanel({
     setShowCommands(false);
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setAttachments(prev => [...prev, base64String]);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if ((!input.trim() && attachments.length === 0) || isLoading) return;
 
     if (input.startsWith("/")) {
       const parts = input.slice(1).split(" ");
@@ -109,9 +128,10 @@ export default function ChatPanel({
       const args = parts.slice(1).join(" ");
       onCommand(command, args);
     } else {
-      onSendMessage(input);
+      onSendMessage(input, attachments); 
     }
     setInput("");
+    setAttachments([]);
     setShowCommands(false);
   };
 
@@ -359,19 +379,58 @@ export default function ChatPanel({
                   <button onClick={onRemoveContext} className="ml-1.5 hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
               </div>
           )}
+
+          {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                  {attachments.map((at, idx) => (
+                      <div key={idx} className="relative group w-12 h-12 rounded-md border border-border overflow-hidden bg-muted/20">
+                          <img src={at} className="w-full h-full object-cover" />
+                          <button 
+                            onClick={() => removeAttachment(idx)}
+                            className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                              <X className="w-2 h-2" />
+                          </button>
+                      </div>
+                  ))}
+              </div>
+          )}
+
           <form onSubmit={handleSubmit} className="relative flex items-end gap-2 bg-muted/30 border border-border/50 rounded-xl p-1.5 focus-within:ring-1 focus-within:ring-accent/50 transition-all shadow-sm">
-            <Input 
-              value={input} 
-              onChange={(e) => setInput(e.target.value)} 
-              placeholder="Ask AI about your code..." 
-              className="flex-1 bg-transparent border-none focus-visible:ring-0 text-sm h-auto min-h-[40px] py-2.5" 
-              autoComplete="off" 
-            />
-            {isLoading ? (
-              <Button type="button" size="icon" onClick={onStopGeneration} className="h-9 w-9 bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-all border border-red-500/20 shadow-none"><Square className="w-3.5 h-3.5 fill-current" /></Button>
-            ) : (
-              <Button type="submit" size="icon" disabled={!input.trim()} className={cn("h-9 w-9 shrink-0 transition-all shadow-none", input.trim() ? "bg-accent text-accent-foreground hover:bg-accent/90" : "bg-muted text-muted-foreground")}><Send className="w-4 h-4" /></Button>
-            )}
+            <div className="flex flex-col flex-1">
+                <Input 
+                    value={input} 
+                    onChange={(e) => setInput(e.target.value)} 
+                    placeholder="Ask AI about your code..." 
+                    className="flex-1 bg-transparent border-none focus-visible:ring-0 text-sm h-auto min-h-[40px] py-2.5" 
+                    autoComplete="off" 
+                />
+            </div>
+            
+            <div className="flex items-center gap-1.5 pr-1.5 pb-1">
+                <input 
+                    type="file" 
+                    id="attachment-input" 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={handleFileChange}
+                />
+                <Button 
+                    type="button" 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-muted-foreground hover:text-accent rounded-lg"
+                    onClick={() => document.getElementById('attachment-input')?.click()}
+                >
+                    <Paperclip className="w-4 h-4" />
+                </Button>
+                
+                {isLoading ? (
+                    <Button type="button" size="icon" onClick={onStopGeneration} className="h-8 w-8 bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-all border border-red-500/20 shadow-none rounded-lg"><Square className="w-3 h-3 fill-current" /></Button>
+                ) : (
+                    <Button type="submit" size="icon" disabled={!input.trim() && attachments.length === 0} className={cn("h-8 w-8 shrink-0 transition-all shadow-none rounded-lg", (input.trim() || attachments.length > 0) ? "bg-accent text-accent-foreground hover:bg-accent/90" : "bg-muted text-muted-foreground")}><Send className="w-3.5 h-3.5" /></Button>
+                )}
+            </div>
           </form>
           <div className="text-[10px] text-center mt-2 text-muted-foreground/40 select-none">
               AI can make mistakes. Review generated code.
