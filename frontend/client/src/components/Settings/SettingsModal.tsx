@@ -56,6 +56,10 @@ export default function SettingsModal({ isOpen, onOpenChange }: SettingsModalPro
   const [selectedRegion, setSelectedRegion] = useState('us-east-1');
   const [storageGb, setStorageGb] = useState(30);
 
+  const [hostPool, setHostPool] = useState<string[]>([]);
+  const [newPoolHost, setNewPoolHost] = useState("");
+  const [remoteRagUrl, setRemoteRagUrl] = useState("");
+
   const [selectedProvider, setSelectedProvider] = useState<'aws' | 'gcp' | 'azure'>('aws');
   const [gcpCreds, setGcpCreds] = useState(() => {
     try { return JSON.parse(localStorage.getItem('gcp_provisioning_creds') || '{}') || { projectId: '', credentialsJson: '' }; }
@@ -96,11 +100,31 @@ export default function SettingsModal({ isOpen, onOpenChange }: SettingsModalPro
       // Test connection on open
       if (aiMode === 'enterprise') {
           handleTestConnection(enterpriseHost, false);
+          llm.getAIHostPool().then(res => {
+              setHostPool(res.hosts);
+          });
+          llm.getAIConfig().then(res => {
+              if (res.config?.remote_rag_url) setRemoteRagUrl(res.config.remote_rag_url);
+          });
       } else {
           handleTestConnection("http://localhost:11434", false);
       }
     }
   }, [isOpen, aiMode]);
+
+  const handleAddHost = async () => {
+    if (!newPoolHost) return;
+    try {
+        const res = await llm.addAIHost(newPoolHost);
+        if (res.status === 'success') {
+            setHostPool(res.hosts);
+            setNewPoolHost("");
+            toast({ title: "Host Added", description: `${newPoolHost} added to inference pool.` });
+        }
+    } catch (e) {
+        toast({ title: "Failed to add host", variant: "destructive" });
+    }
+  };
 
   const handleTestConnection = async (host: string, showToast = true) => {
     if (!host && aiMode === 'enterprise') {
@@ -196,6 +220,10 @@ export default function SettingsModal({ isOpen, onOpenChange }: SettingsModalPro
       localStorage.setItem("ui_theme", currentTheme);
       document.documentElement.className = currentTheme === "default" ? "" : currentTheme;
 
+      if (aiMode === 'enterprise') {
+         await llm.updateAIConfig({ remote_rag_url: remoteRagUrl });
+      }
+
       toast({
         title: "Settings Saved",
         description: `Configuration and appearance updated. Your changes will be fully applied on the next app reload.`,
@@ -243,29 +271,44 @@ export default function SettingsModal({ isOpen, onOpenChange }: SettingsModalPro
                         </div>
                         <div className="flex items-center space-x-2 border border-border bg-background p-4 rounded-lg w-full hover:bg-accent/50 transition-colors cursor-pointer group">
                             <RadioGroupItem value="enterprise" id="enterprise-host" />
-                            <Label htmlFor="enterprise-host" className="flex items-center gap-2 cursor-pointer"><Wifi className="w-4 h-4" /> Enterprise Endpoint</Label>
+                            <Label htmlFor="enterprise-host" className="flex items-center gap-2 cursor-pointer"><Wifi className="w-4 h-4" /> Remote AI Host</Label>
                         </div>
                     </RadioGroup>
                     
                     {aiMode === 'enterprise' && (
                         <div className="space-y-4 pl-2 animate-in fade-in slide-in-from-top-2">
                             <div className="space-y-2">
-                                <Label htmlFor="enterprise-url">Endpoint URL</Label>
+                                <Label htmlFor="enterprise-url">Remote Host URL</Label>
+                                <p className="text-[10px] text-muted-foreground mb-1">Enter the IP of your other laptop or remote server (e.g., http://192.168.1.100:11434).</p>
                                 <div className="flex items-center gap-2">
                                     <Input
                                         id="enterprise-url"
                                         value={enterpriseHost}
                                         onChange={(e) => setEnterpriseHost(e.target.value)}
-                                        placeholder="http://your-company-ai.net:11434"
+                                        placeholder="http://192.168.1.100:11434"
                                     />
                                     {connectionStatus === 'connected' && <Check className="w-5 h-5 text-green-500" />}
                                     {connectionStatus === 'disconnected' && <WifiOff className="w-5 h-5 text-red-500" />}
                                     {connectionStatus === 'pending' && <Loader2 className="w-5 h-5 animate-spin" />}
                                 </div>
-                                <Button onClick={() => handleTestConnection(enterpriseHost)} size="sm" className="mt-2" disabled={connectionStatus === 'pending'}>
-                                    {connectionStatus === 'pending' ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : null}
-                                    Test Connection
-                                </Button>
+                                <div className="flex gap-2 items-center mt-2">
+                                    <Button onClick={() => handleTestConnection(enterpriseHost)} size="sm" disabled={connectionStatus === 'pending'}>
+                                        {connectionStatus === 'pending' ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : null}
+                                        Test Connection
+                                    </Button>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="text-[10px] h-8"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText("OLLAMA_HOST=0.0.0.0 ollama serve");
+                                            toast({ title: "Copied Command", description: "Run this on the remote machine to allow connections." });
+                                        }}
+                                    >
+                                        <Copy className="w-3 h-3 mr-2" />
+                                        Copy Setup Command
+                                    </Button>
+                                </div>
                             </div>
 
                             <div className="pt-4 border-t border-border/30">
@@ -290,6 +333,47 @@ export default function SettingsModal({ isOpen, onOpenChange }: SettingsModalPro
                                                     setEnterpriseHost(instance.url);
                                                     handleTestConnection(instance.url);
                                                 }}>Connect</Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                </div>
+
+                                <div className="pt-4 border-t border-border/30">
+                                <Label className="text-sm font-medium">Shared Project Context</Label>
+                                <p className="text-[10px] text-muted-foreground mb-3">Connect to a centralized LocalDev RAG server for team-wide code search.</p>
+
+                                <div className="space-y-2">
+                                    <Input 
+                                        placeholder="http://rag-server.company.internal:8000" 
+                                        className="h-8 text-xs"
+                                        value={remoteRagUrl}
+                                        onChange={(e) => setRemoteRagUrl(e.target.value)}
+                                    />
+                                    <p className="text-[8px] text-muted-foreground italic">Note: This will proxy all RAG requests to the specified central server.</p>
+                                </div>
+                                </div>
+
+                            <div className="pt-4 border-t border-border/30">
+                                <Label className="text-sm font-medium">Enterprise Inference Pool</Label>
+                                <p className="text-[10px] text-muted-foreground mb-3">Add multiple GPUs for load balancing and high availability.</p>
+                                
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Input 
+                                        placeholder="http://192.168.1.101:11434" 
+                                        value={newPoolHost}
+                                        onChange={(e) => setNewPoolHost(e.target.value)}
+                                        className="h-8 text-xs"
+                                    />
+                                    <Button size="sm" onClick={handleAddHost} className="h-8">Add</Button>
+                                </div>
+
+                                {hostPool.length > 0 && (
+                                    <div className="space-y-1 bg-white/5 rounded-md p-2 border border-white/5">
+                                        {hostPool.map((h, i) => (
+                                            <div key={i} className="flex items-center justify-between text-[10px] font-mono py-1 px-2 hover:bg-white/5 rounded transition-colors group">
+                                                <span>{h}</span>
+                                                {i === 0 && <span className="text-[8px] uppercase text-primary font-bold">Primary</span>}
                                             </div>
                                         ))}
                                     </div>
