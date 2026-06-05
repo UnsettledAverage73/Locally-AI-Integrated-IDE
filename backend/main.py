@@ -53,6 +53,20 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
+        # --- NEXT-GEN AUTO-INDEXING ---
+        if message.get("type") == "file_change":
+            path = message.get("path")
+            if path and os.path.exists(path) and not os.path.isdir(path):
+                valid_extensions = {'.py', '.js', '.ts', '.tsx', '.jsx', '.go', '.rs', '.c', '.cpp', '.md'}
+                if any(path.endswith(ext) for ext in valid_extensions):
+                    try:
+                        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        # Run indexing in background
+                        asyncio.create_task(rag_service.index_file(path, content, force=True))
+                    except Exception as e:
+                        print(f"Error auto-indexing {path}: {e}")
+
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
@@ -309,6 +323,11 @@ class EnvConfigRequest(BaseModel):
 class AIHostRequest(BaseModel):
     host: str
 
+class AIConfigRequest(BaseModel):
+    ollama_hosts: Optional[List[str]] = None
+    active_model: Optional[str] = None
+    remote_rag_url: Optional[str] = None
+
 class GitStageRequest(BaseModel):
     path: str
 
@@ -490,6 +509,40 @@ async def get_env_status():
         # Do not return the actual token for security, just presence
     }
 
+@app.post("/config/ai")
+async def update_ai_config(request: AIConfigRequest):
+    try:
+        config_path = os.path.expanduser("~/.sovereign/config.json")
+        config = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+        
+        if request.ollama_hosts is not None:
+            config["ollama_hosts"] = request.ollama_hosts
+            ollama_service.hosts = request.ollama_hosts
+        if request.active_model is not None:
+            config["active_model"] = request.active_model
+            ollama_service.active_model = request.active_model
+        if request.remote_rag_url is not None:
+            config["remote_rag_url"] = request.remote_rag_url
+        
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+            
+        return {"status": "success", "config": config}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/ai")
+async def get_ai_config():
+    try:
+        from services.model_loader import get_config
+        return {"status": "success", "config": get_config()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/config/ai-host")
 async def update_ai_host(request: AIHostRequest):
     try:
@@ -497,6 +550,18 @@ async def update_ai_host(request: AIHostRequest):
         return {"status": "success" if success else "error", "host": ollama_service.host, "available": success}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/config/ai-host/add")
+async def add_ai_host(request: AIHostRequest):
+    try:
+        success = await ollama_service.add_host(request.host)
+        return {"status": "success" if success else "error", "hosts": ollama_service.hosts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/ai-host/pool")
+async def get_ai_host_pool():
+    return {"hosts": ollama_service.hosts}
 
 # --- GIT ENDPOINTS ---
 
@@ -711,6 +776,14 @@ async def ollama_pull_ws(websocket: WebSocket):
     finally:
         await websocket.close()
 
+@app.get("/ollama/recommendation")
+async def get_model_recommendation():
+    try:
+        from services.model_loader import get_recommended_model
+        return {"recommended_model": get_recommended_model()}
+    except Exception as e:
+        return {"recommended_model": "qwen2.5:0.5b"}
+
 @app.delete("/ollama/models/{model_name}")
 async def ollama_delete(model_name: str):
     try:
@@ -728,7 +801,7 @@ async def run_benchmark(request: Dict[str, Any] = None):
     """Runs a performance benchmark on the local LLM."""
     model = (request or {}).get("model", "qwen2.5-coder:1.5b")
     prompt = "Write a Python function to calculate the Fibonacci sequence."
-    endpoint = "http://localhost:11434/api/generate"
+    endpoint = f"{ollama_service.host}/api/generate"
     
     start_time = time.time()
     try:
@@ -1107,6 +1180,19 @@ Modified Code:"""
             
     return {"modified_code": content}
 
+class ComposerRequest(BaseModel):
+    instruction: str
+    files: List[str]
+    model: Optional[str] = "qwen2.5:0.5b"
+
+@app.post("/composer/edit")
+async def composer_edit_endpoint(req: ComposerRequest):
+    try:
+        results = await optimizer.composer_edit(req.instruction, req.files, req.model)
+        return {"status": "success", "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/optimizer/propose-fix")
 async def propose_fix_endpoint(req: ProposeFixRequest):
     return await optimizer.propose_fix(req.file_path, req.line_number, req.error_message)
@@ -1226,8 +1312,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                             # Only fetch context if it's a user message
                             if messages[-1]["role"] == "user":
                                 # Save user message to history
+                                images = messages[-1].get("images", [])
                                 if session_id:
-                                    history_service.add_message(session_id, "user", last_msg)
+                                    history_service.add_message(session_id, "user", last_msg, images=images)
 
                                 ctx = await rag_service.get_context(last_msg)
                                 if ctx:
