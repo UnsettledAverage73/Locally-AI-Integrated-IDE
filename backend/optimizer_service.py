@@ -30,8 +30,18 @@ class OptimizerService:
         {original_code}
         ```
         
-        TASK: Rewrite the entire file to fix bugs, add type hints, and optimize logic.
-        IMPORTANT: Output ONLY the full valid code block. No markdown, no explanations.
+        TASK: Optimize the code to fix bugs, add type hints, and optimize logic.
+        To be highly efficient, you MUST use SEARCH/REPLACE blocks to apply your changes.
+        Do not output the entire file. Output ONLY the necessary blocks to fix the issue.
+
+        FORMAT:
+        <<<<
+        SEARCH
+        [exact code to replace from the original file, including indentation]
+        ====
+        REPLACE
+        [new fixed code, maintaining correct indentation]
+        >>>>
         """
 
         # 3. CALL the AI
@@ -42,14 +52,8 @@ class OptimizerService:
                 options={'temperature': 0.1}
             )
             
-            optimized_code = response['message']['content']
-            
-            # Clean up potential markdown wrapper
-            if "```" in optimized_code:
-                lines = optimized_code.split("\n")
-                if lines[0].startswith("```"): lines = lines[1:]
-                if lines and lines[-1].strip().startswith("```"): lines = lines[:-1]
-                optimized_code = "\n".join(lines).strip()
+            blocks_text = response['message']['content']
+            optimized_code = fixer_service._apply_blocks(original_code, blocks_text)
 
             # 4. WRITE back to disk
             with open(file_path, "w", encoding="utf-8") as f:
@@ -84,11 +88,22 @@ class OptimizerService:
                 Global Goal: {instruction}
                 
                 Existing Content:
+                ```
                 {content}
+                ```
                 
                 TASK: Propose the necessary changes for this file to achieve the global goal.
-                IMPORTANT: You MUST return the FULL modified content of the file. Do not use diffs or placeholders.
-                Just the code. No markdown, no talk.
+                To be highly efficient, you MUST use SEARCH/REPLACE blocks to apply your changes.
+                Do not output the entire file. Output ONLY the necessary blocks to fix the issue.
+
+                FORMAT:
+                <<<<
+                SEARCH
+                [exact code to replace from the original file, including indentation]
+                ====
+                REPLACE
+                [new fixed code, maintaining correct indentation]
+                >>>>
                 """
                 
                 response = await self.client.chat(
@@ -97,14 +112,8 @@ class OptimizerService:
                     options={'temperature': 0.1}
                 )
                 
-                modified_content = response['message']['content']
-                
-                # Clean up markdown
-                if "```" in modified_content:
-                    lines = modified_content.split("\n")
-                    if lines[0].startswith("```"): lines = lines[1:]
-                    if lines and lines[-1].strip().startswith("```"): lines = lines[:-1]
-                    modified_content = "\n".join(lines).strip()
+                blocks_text = response['message']['content']
+                modified_content = fixer_service._apply_blocks(content, blocks_text)
 
                 return {
                     "path": file_path,
