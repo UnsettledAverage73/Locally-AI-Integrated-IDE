@@ -1,5 +1,7 @@
 import asyncio
 import os
+import re
+import difflib
 from services.llm_service import mcp_manager, get_ollama_client
 
 FIX_PROMPT_TEMPLATE = """
@@ -15,16 +17,63 @@ A user has encountered an error in their code and needs your help to fix it.
 {file_content}
 ```
 
-Your task is to fix the error described above. 
-Output ONLY the full, complete, and valid source code for the entire file. 
-Do not include any explanations, markdown code blocks (like ```python), or any other text.
-Your entire response will be written directly to the file.
+Your task is to fix the error described above.
+To be highly efficient, you MUST use SEARCH/REPLACE blocks to apply your changes.
+Do not output the entire file. Output ONLY the necessary blocks to fix the issue.
+
+FORMAT:
+<<<<
+SEARCH
+[exact code to replace from the original file, including indentation]
+====
+REPLACE
+[new fixed code, maintaining correct indentation]
+>>>>
+
+Example:
+<<<<
+SEARCH
+    def add(a, b):
+        return a - b
+====
+REPLACE
+    def add(a, b):
+        return a + b
+>>>>
 """
 
 class FixerService:
+    def _apply_blocks(self, content: str, blocks_text: str) -> str:
+        pattern = re.compile(r'<<<<\nSEARCH\n(.*?)\n====\nREPLACE\n(.*?)\n>>>>', re.DOTALL)
+        blocks = pattern.findall(blocks_text)
+        
+        if not blocks:
+            # Fallback: if the model ignored instructions and returned full code block
+            if "```" in blocks_text:
+                lines = blocks_text.split("```")
+                if len(lines) >= 3:
+                    code_lines = lines[1].splitlines()
+                    if code_lines and not code_lines[0].isspace():
+                        # remove language identifier like `python`
+                        code_lines = code_lines[1:]
+                    return "\n".join(code_lines).strip()
+            return content
+
+        modified_content = content
+        for search_text, replace_text in blocks:
+            # Exact match replacement
+            if search_text in modified_content:
+                modified_content = modified_content.replace(search_text, replace_text, 1)
+            else:
+                # Try stripped fallback
+                if search_text.strip() in modified_content:
+                    modified_content = modified_content.replace(search_text.strip(), replace_text.strip(), 1)
+                    
+        return modified_content
+
     async def propose_fix(self, file_path: str, line_number: int, error_message: str):
         """
-        Proposes a fix for an error in a file by returning the full fixed content.
+        Proposes a fix for an error in a file using an efficient SEARCH/REPLACE strategy.
         """
         try:
             if not os.path.exists(file_path):
@@ -42,31 +91,17 @@ class FixerService:
 
             messages = [{"role": "user", "content": prompt}]
             
-            # Use the configured Ollama client
             client = get_ollama_client()
-            
-            # Using a low temperature for more deterministic code generation
             response = await client.chat(
                 model="qwen2.5:0.5b", 
                 messages=messages,
                 options={"temperature": 0.1}
             )
 
-            fixed_content = response["message"]["content"]
-            
-            # Clean up potential markdown wrappers if the model ignores instructions
-            if fixed_content.startswith("```"):
-                lines = fixed_content.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                fixed_content = "\n".join(lines)
-            
-            fixed_content = fixed_content.strip()
+            blocks_text = response["message"]["content"]
+            fixed_content = self._apply_blocks(file_content, blocks_text)
 
             # Generate unified diff
-            import difflib
             original_lines = file_content.splitlines(keepends=True)
             proposed_lines = fixed_content.splitlines(keepends=True)
             diff = difflib.unified_diff(
