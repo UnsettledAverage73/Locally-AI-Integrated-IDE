@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -21,13 +22,14 @@ interface ModelOption {
 }
 
 const KNOWN_MODELS: ModelOption[] = [
-  { name: "qwen2.5:0.5b2.5:0.5b", label: "Qwen 2.5 (0.5B) - Tiny/Fast", size_gb: 0.4, min_ram_gb: 2 },
+  { name: "qwen2.5:0.5b", label: "Qwen 2.5 (0.5B) - Tiny/Fast", size_gb: 0.4, min_ram_gb: 2 },
+  { name: "qwen2.5:1.5b", label: "Qwen 2.5 (1.5B) - Smart/Small", size_gb: 1.1, min_ram_gb: 4 },
+  { name: "qwen2.5-coder:latest", label: "Qwen 2.5 Coder (7B) - Best for Code", size_gb: 4.7, min_ram_gb: 8 },
+  { name: "deepseek-coder:latest", label: "DeepSeek Coder (Standard)", size_gb: 4.0, min_ram_gb: 8 },
   { name: "gemma:2b", label: "Gemma (2B) - Light", size_gb: 1.5, min_ram_gb: 4 },
   { name: "llama3.2:3b", label: "Llama 3.2 (3B) - Balanced", size_gb: 2.0, min_ram_gb: 8 },
-  { name: "qwen2.5:0.5b", label: "DeepSeek Coder (Standard)", size_gb: 4.0, min_ram_gb: 8 },
   { name: "llama3:8b", label: "Llama 3 (8B) - Smart", size_gb: 4.7, min_ram_gb: 12 },
   { name: "mistral", label: "Mistral (7B)", size_gb: 4.1, min_ram_gb: 12 },
-  { name: "llama3:70b", label: "Llama 3 (70B) - Genius", size_gb: 40, min_ram_gb: 48 },
 ];
 
 export default function ModelSettings() {
@@ -45,9 +47,19 @@ export default function ModelSettings() {
   const [profile, setProfile] = useState("balanced");
   const [activeModel, setActiveModel] = useState("qwen2.5:0.5b");
   const [selectedModel, setSelectedModel] = useState<any | null>(null);
+  const [recommendation, setRecommendation] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
+    const fetchRecommendation = async () => {
+        try {
+            const { recommended_model } = await llm.getRecommendation();
+            setRecommendation(recommended_model);
+        } catch (e) {
+            console.error("Failed to fetch recommendation", e);
+        }
+    };
+    fetchRecommendation();
     const savedProfile = localStorage.getItem("ai_profile") || "balanced";
     setProfile(savedProfile);
     const savedModel = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
@@ -254,11 +266,18 @@ export default function ModelSettings() {
                 const isTooBigForDisk = model.size_gb > availableDisk;
                 const canDownload = !isInstalled && !isDiskCritical && !isTooBigForDisk;
                 const isCurrentlyDownloading = isDownloading && downloadingModelName === model.name;
+                const isRecommended = recommendation && (model.name === recommendation || (recommendation.includes(model.name.split(':')[0]) && recommendation.includes(model.name.split(':')[1])));
 
                 return (
-                    <div key={model.name} className="flex items-center justify-between p-3 border rounded-md bg-card">
-                        <div>
-                            <div className="font-medium">{model.label}</div>
+                    <div key={model.name} className={cn(
+                        "flex items-center justify-between p-3 border rounded-md bg-card transition-all",
+                        isRecommended ? "border-primary/50 bg-primary/5 shadow-sm scale-[1.01]" : ""
+                    )}>
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                                <div className="font-medium">{model.label}</div>
+                                {isRecommended && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">Recommended</span>}
+                            </div>
                             <div className="text-xs text-muted-foreground">Size: {model.size_gb}GB • RAM Req: {model.min_ram_gb}GB</div>
                         </div>
                         {isInstalled ? (
