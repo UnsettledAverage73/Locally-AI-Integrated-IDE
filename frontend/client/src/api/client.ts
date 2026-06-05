@@ -195,10 +195,14 @@ export const llm = {
   models: async (): Promise<{ models: string[] }> => {
     const { data } = await apiClient.get("/ollama/models");
     if (data && Array.isArray(data.models)) {
-      // The backend returns a simple array of strings, so we can use it directly.
-      return { models: data.models };
+      // Map to strings if the backend returned objects
+      return { 
+        models: data.models.map((m: any) => {
+          if (typeof m === 'string') return m;
+          return m.name || m.model || "";
+        }).filter((name: string) => name !== "")
+      };
     }
-    // Return an empty array if the structure is not what we expect.
     return { models: [] };
   },
   pullModel: async (model: string): Promise<{ status: string }> => {
@@ -218,8 +222,28 @@ export const llm = {
     const { data } = await apiClient.get(`/ollama/show/${encodeURIComponent(modelName)}`);
     return data;
   },
+  getRecommendation: async (): Promise<{ recommended_model: string }> => {
+    const { data } = await apiClient.get("/ollama/recommendation");
+    return data;
+  },
   updateAIHost: async (host: string): Promise<{ status: string, host: string, available: boolean }> => {
     const { data } = await apiClient.post("/config/ai-host", { host });
+    return data;
+  },
+  updateAIConfig: async (config: { ollama_hosts?: string[], active_model?: string, remote_rag_url?: string }): Promise<any> => {
+    const { data } = await apiClient.post("/config/ai", config);
+    return data;
+  },
+  getAIConfig: async (): Promise<{ status: string, config: any }> => {
+    const { data } = await apiClient.get("/config/ai");
+    return data;
+  },
+  addAIHost: async (host: string): Promise<{ status: string, hosts: string[] }> => {
+    const { data } = await apiClient.post("/config/ai-host/add", { host });
+    return data;
+  },
+  getAIHostPool: async (): Promise<{ hosts: string[] }> => {
+    const { data } = await apiClient.get("/config/ai-host/pool");
     return data;
   }
 };
@@ -350,8 +374,13 @@ export const optimizer = {
         const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
         const { data } = await apiClient.post("/fs/edit_selection", { file_path: filePath, selected_code: selectedCode, instruction, model });
         return data;
-        }
-        };
+    },
+    composerEdit: async (instruction: string, files: string[]): Promise<{ results: { path: string, original: string, modified: string }[] }> => {
+        const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
+        const { data } = await apiClient.post("/composer/edit", { instruction, files, model });
+        return data;
+    }
+};
 
         export const cloud = {
     discover: async (): Promise<{ results: { host: string; port: number; url: string; available: boolean; models: string[] }[] }> => {
@@ -363,4 +392,3 @@ export const optimizer = {
         return data;
     }
 };
-
