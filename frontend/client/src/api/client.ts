@@ -248,6 +248,21 @@ export const llm = {
   }
 };
 
+export const flow = {
+  start: async (goal: string, context?: string): Promise<{ flow_id: string, status: string }> => {
+    const { data } = await apiClient.post("/flow/start", { goal, context });
+    return data;
+  },
+  status: async (flowId: string): Promise<any> => {
+    const { data } = await apiClient.get(`/flow/status/${flowId}`);
+    return data;
+  },
+  getCodebaseMap: async (): Promise<{ map: string }> => {
+    const { data } = await apiClient.get("/codebase/map");
+    return data;
+  }
+};
+
 export const system = {
       getStats: async (): Promise<{ 
           ram_total_gb: number; 
