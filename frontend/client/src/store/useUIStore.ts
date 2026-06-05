@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type SidebarView = 'explorer' | 'git' | 'system' | 'search' | 'browser';
+type SidebarView = 'explorer' | 'git' | 'system' | 'search' | 'browser' | 'flow';
 
 interface UIState {
   activeView: SidebarView;
