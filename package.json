@@ -6,7 +6,7 @@
   "scripts": {
     "start": "npm run start:dev",
     "start:backend": "bash ./backend.sh",
-    "start:sidecar": "cd sidecar && . .venv/bin/activate && python -m localdev_sidecar.cli",
+    "start:sidecar": "cd sidecar && . venv/bin/activate && python -m localdev_sidecar.cli",
     "start:lsp": "cd backend && . venv/bin/activate && python -m language_server",
     "start:frontend": "cd frontend && npm run dev",
     "start:electron": "electron .",
