@@ -72,9 +72,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     try {
       const filePaths = await (window as any).fileSystem?.selectFiles();
       if (filePaths && filePaths.length > 0) {
-        for (const path of filePaths) {
-          await get().handleFileClick(path);
-        }
+        await Promise.all(filePaths.map((path: string) => get().handleFileClick(path)));
       }
     } catch (e) {
       toast({ title: "Error", description: "Could not open file dialog.", variant: "destructive" });
@@ -83,23 +81,34 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   handleFileClick: async (path: string) => {
     const { openFiles } = get();
-    const existingFile = openFiles.find(f => f.path === path);
-
-    if (existingFile) {
+    if (openFiles.some(f => f.path === path)) {
       set({ activeFile: path });
-    } else {
-      try {
-        const { content } = await fs.readFile(path);
-        set({
-          openFiles: [...openFiles, { path, content }],
+      return;
+    }
+
+    try {
+      const { content } = await fs.readFile(path);
+      let shouldIndex = false;
+
+      set((state) => {
+        const alreadyOpen = state.openFiles.some(f => f.path === path);
+        if (alreadyOpen) {
+          return { activeFile: path };
+        }
+
+        shouldIndex = true;
+        return {
+          openFiles: [...state.openFiles, { path, content }],
           activeFile: path
-        });
-        
-        // Auto-index on open
+        };
+      });
+
+      if (shouldIndex) {
+        // Auto-index on open, but only after the file is actually added to the tab list.
         rag.indexFile(path, content).catch(err => console.error("Auto-index failed", err));
-      } catch (e) {
-        toast({ title: "Error", description: `Could not read file: ${path}`, variant: "destructive" });
       }
+    } catch (e) {
+      toast({ title: "Error", description: `Could not read file: ${path}`, variant: "destructive" });
     }
   },
 
