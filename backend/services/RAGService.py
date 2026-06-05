@@ -1,8 +1,15 @@
+import logging
+import json
 import ollama
 import lancedb
 import os
 import traceback
 from typing import List, Dict, Any, Union
+from tree_sitter import Language, Parser
+import tree_sitter_language_pack as tree_sitter_languages
+
+logger = logging.getLogger("sovereign-ide")
+
 def log_debug(msg):
     with open("debug_rag.log", "a") as f:
         f.write(f"{msg}\n")
@@ -10,11 +17,10 @@ from dotenv import load_dotenv
 from .OllamaService import OllamaService
 from pruner import prune_code
 import asyncio
+import httpx
+from .model_loader import get_remote_rag_url
 
 load_dotenv()
-
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
 # Use a safe default path in the user's home directory
 DEFAULT_LANCEDB_PATH = os.path.join(os.path.expanduser("~"), ".localdev", "lancedb")
@@ -92,6 +98,62 @@ class RAGService:
             self.chat_table = None
             self.memory_table = None
 
+    async def _chunk_code_ast(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        """
+        Chunks code based on AST structure (classes, functions).
+        """
+        lang_ext = os.path.splitext(file_path)[1]
+        lang_name = get_language_from_path(file_path)
+        
+        if not lang_name or lang_name not in ["python", "javascript", "typescript", "go", "rust"]:
+             return await self._chunk_code(content) # Fallback to line-based
+
+        try:
+            language = tree_sitter_languages.get_language(lang_name)
+            parser = Parser()
+            parser.set_language(language)
+            tree = parser.parse(bytes(content, "utf8"))
+            
+            chunks = []
+            
+            # Nodes we want to extract as distinct chunks
+            target_types = {
+                "python": ["function_definition", "class_definition"],
+                "javascript": ["function_declaration", "class_definition", "method_definition"],
+                "typescript": ["function_declaration", "class_definition", "method_definition", "interface_declaration"],
+                "go": ["function_declaration", "type_declaration"],
+                "rust": ["function_item", "struct_item", "impl_item", "trait_item"]
+            }
+            
+            targets = target_types.get(lang_name, [])
+            
+            def traverse(node):
+                if node.type in targets:
+                    start_byte = node.start_byte
+                    end_byte = node.end_byte
+                    chunk_content = content[start_byte:end_byte]
+                    
+                    if len(chunk_content) > 50: # Avoid tiny chunks
+                        chunks.append({
+                            "content": chunk_content,
+                            "start_line": node.start_point[0],
+                            "end_line": node.end_point[0],
+                            "type": node.type
+                        })
+                
+                for child in node.children:
+                    traverse(child)
+
+            traverse(tree.root_node)
+            
+            if not chunks:
+                return await self._chunk_code(content)
+                
+            return chunks
+        except Exception as e:
+            log_debug(f"AST Chunking failed for {file_path}: {e}. Falling back.")
+            return await self._chunk_code(content)
+
     async def _chunk_code(self, content: str, max_chunk_size: int = 1000) -> List[Dict[str, Any]]:
         log_debug(f"Chunking content of size: {len(content)}")
         lines = content.split('\n')
@@ -124,41 +186,35 @@ class RAGService:
         log_debug(f"Generated {len(chunks)} chunks.")
         return chunks
 
-    async def index_file(self, file_path: str, content: str):
+    async def index_file(self, file_path: str, content: str, force: bool = False):
         log_debug(f"Attempting to index file: {file_path}")
         
         if not self.db:
-            log_debug("DB not initialized. Attempting to initialize...")
             self.initialize_db()
             
-        if not self.ollama_service:
-            log_debug("Ollama service is missing. Cannot index.")
+        if not self.ollama_service or not self.db:
             return
 
-        if not self.db:
-            log_debug("DB initialization failed. Skipping indexing.")
-            return
-
+        # If incremental update, delete old records first
         if file_path in self.indexed_files:
-            log_debug(f"File {file_path} already indexed. Skipping.")
-            return 
+            if not force:
+                log_debug(f"File {file_path} already indexed. Skipping.")
+                return 
+            
+            log_debug(f"Incremental update for {file_path}. Deleting old records.")
+            if self.table:
+                self.table.delete(f'path = "{file_path}"')
         
-        chunks = await self._chunk_code(content)
+        chunks = await self._chunk_code_ast(content, file_path)
         
-        if not chunks: # No chunks to index
-            log_debug(f"No chunks generated for {file_path}. Skipping indexing.")
+        if not chunks:
             return
 
         chunk_contents = [chunk["content"] for chunk in chunks]
-        
-        log_debug(f"Generating embeddings for {len(chunk_contents)} chunks from {file_path} in batch.")
         embeddings = await self.ollama_service.generate_embedding(chunk_contents)
         
-        log_debug(f"Received {len(embeddings) if embeddings else 0} embeddings.")
-
-        # Ensure that embeddings were generated and the count matches chunks
         if not embeddings or len(embeddings) != len(chunks):
-            log_debug(f"Warning: Failed to generate embeddings for all chunks in {file_path}. Skipping indexing.")
+            log_debug(f"Warning: Failed to generate embeddings for {file_path}.")
             return
 
         records = []
@@ -173,17 +229,15 @@ class RAGService:
         
         if records:
             if not self.table:
-                log_debug(f"Creating new LanceDB table 'code_index' for {file_path}.")
                 self.table = self.db.create_table("code_index", data=records)
             else:
-                log_debug(f"Adding {len(records)} records to existing 'code_index' table for {file_path}.")
                 self.table.add(records)
-            self.indexed_files.add(file_path)
-            with open(self.index_state_path, "w") as f:
-                f.write("\n".join(self.indexed_files))
+            
+            if file_path not in self.indexed_files:
+                self.indexed_files.add(file_path)
+                with open(self.index_state_path, "w") as f:
+                    f.write("\n".join(self.indexed_files))
             log_debug(f"Successfully indexed {file_path}.")
-        else:
-            log_debug(f"No records to add for {file_path}.")
 
     async def index_directory(self, root_path: str):
         log_debug(f"Indexing directory: {root_path}")
@@ -294,6 +348,29 @@ class RAGService:
     async def get_context(self, query: str, current_file: str = None, limit: int = 5) -> str:
         log_debug(f"Getting context for query: '{query}' (current_file: {current_file})")
         
+        remote_url = get_remote_rag_url()
+        if remote_url:
+            try:
+                logger.info(json.dumps({
+                    "event": "rag_proxy",
+                    "target": remote_url,
+                    "query": query[:50]
+                }))
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(f"{remote_url}/rag/context", json={
+                        "query": query,
+                        "current_file": current_file,
+                        "limit": limit
+                    })
+                    if resp.status_code == 200:
+                        return resp.json().get("context", "")
+            except Exception as e:
+                logger.error(json.dumps({
+                    "event": "rag_proxy_failed",
+                    "error": str(e),
+                    "fallback": "local"
+                }))
+
         if not self.db:
             self.initialize_db()
 
