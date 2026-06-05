@@ -4,10 +4,18 @@ import { fs, rag } from '@/api/client';
 
 export function useFileWatcher() {
   const socketRef = useRef<WebSocket | null>(null);
-  const { rootPath, fetchFileTree } = useFileStore();
+  const reconnectTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+  const fetchFileTreeRef = useRef<(() => Promise<void>) | null>(null);
+  const { fetchFileTree } = useFileStore();
+
+  useEffect(() => {
+    fetchFileTreeRef.current = fetchFileTree;
+  }, [fetchFileTree]);
 
   const connect = () => {
       if (socketRef.current?.readyState === WebSocket.OPEN) return;
+      if (!mountedRef.current) return;
 
       const ws = new WebSocket("ws://127.0.0.1:8000/ws/files");
       socketRef.current = ws;
@@ -17,7 +25,7 @@ export function useFileWatcher() {
               const data = JSON.parse(event.data);
               if (data.type === "file_change") {
                   if (['created', 'deleted', 'moved'].includes(data.event)) {
-                      fetchFileTree();
+                      fetchFileTreeRef.current?.();
                   }
 
                   if (data.event === 'modified' || data.event === 'created') {
@@ -37,13 +45,25 @@ export function useFileWatcher() {
       };
 
       ws.onclose = () => {
+          if (!mountedRef.current) return;
           console.log("File watcher disconnected. Reconnecting...");
-          setTimeout(connect, 2000);
+          if (reconnectTimerRef.current) {
+              window.clearTimeout(reconnectTimerRef.current);
+          }
+          reconnectTimerRef.current = window.setTimeout(connect, 2000);
       };
   };
 
   useEffect(() => {
+      mountedRef.current = true;
       connect();
-      return () => socketRef.current?.close();
-  }, [rootPath]);
+      return () => {
+          mountedRef.current = false;
+          if (reconnectTimerRef.current) {
+              window.clearTimeout(reconnectTimerRef.current);
+              reconnectTimerRef.current = null;
+          }
+          socketRef.current?.close();
+      };
+  }, []);
 }
