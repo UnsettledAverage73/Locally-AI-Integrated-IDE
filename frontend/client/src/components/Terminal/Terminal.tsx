@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Button } from '../ui/button';
-import { RefreshCw, Sparkles } from 'lucide-react';
+import { RefreshCw, Sparkles, Bug, Terminal as TerminalIcon } from 'lucide-react';
+import { Input } from '../ui/input';
 import '@xterm/xterm/css/xterm.css';
-import { optimizer, fs } from '@/api/client';
+import { optimizer, fs, llm } from '@/api/client';
 import { toast } from '@/hooks/use-toast';
 import { ErrorDetails } from '@/types';
+import { useChatStore } from '@/store/useChatStore';
 
 interface TerminalProps {
   sessionId?: string;
@@ -41,9 +43,39 @@ export default function Terminal({ sessionId }: TerminalProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [isFixItModalOpen, setIsFixItModalOpen] = useState(false);
+  const [isCmdGenOpen, setIsCmdGenOpen] = useState(false);
+  const [cmdInput, setCmdInput] = useState("");
   const [errorDetails, setErrorDetails] = useState<ErrorDetails | null>(null);
   const [fixDiff, setFixDiff] = useState("");
   const [fixedContent, setFixedContent] = useState("");
+
+  const handleDebug = async () => {
+      if (!errorDetails) return;
+
+      const prompt = `I encountered an error in the terminal while running my code.
+File: ${errorDetails.filePath}
+Line: ${errorDetails.lineNumber}
+Error: ${errorDetails.errorMessage}
+
+Can you help me fix this?`;
+
+      try {
+          useChatStore.setState(state => ({
+              chatMessages: [...state.chatMessages, { role: 'user', content: prompt }],
+              isChatLoading: true
+          }));
+
+          const response = await llm.chat([{ role: 'user', content: prompt }]);
+
+          useChatStore.setState(state => ({
+              chatMessages: [...state.chatMessages, { role: 'assistant', content: response.content }],
+              isChatLoading: false
+          }));
+      } catch (e) {
+          useChatStore.setState({ isChatLoading: false });
+          toast({ title: "Debug Failed", description: "Could not send the terminal error to chat.", variant: "destructive" });
+      }
+  };
 
   // Function to establish (or re-establish) the WebSocket connection
   const connectTerminal = useCallback(() => {
@@ -77,9 +109,14 @@ export default function Terminal({ sessionId }: TerminalProps) {
             const output = event.data;
             term.write(output);
             
-            // Naive error detection
-            if (output.toLowerCase().includes("error")) {
-                const match = output.match(/File "(.+)", line (\d+)/);
+            // Advanced error detection (Python, Node.js, Go, Rust)
+            if (output.toLowerCase().includes("error") || output.includes("Exception") || output.includes("panic:")) {
+                const pythonMatch = output.match(/File "(.+)", line (\d+)/);
+                const nodeMatch = output.match(/\((.+):(\d+):(\d+)\)/);
+                const genericMatch = output.match(/^(.+\.(?:go|rs|py|js|ts)):(\d+)/m);
+                
+                const match = pythonMatch || nodeMatch || genericMatch;
+
                 if (match) {
                     setErrorDetails({
                         filePath: match[1],
@@ -196,33 +233,71 @@ export default function Terminal({ sessionId }: TerminalProps) {
           setIsFixItModalOpen(false);
       }
   };
-  
-    const handleAcceptFix = async () => {
-        if (!errorDetails || !fixedContent) return;
-        
-        try {
-            await fs.writeFile(errorDetails.filePath, fixedContent);
+  const handleAcceptFix = async () => {
+      if (!errorDetails || !fixedContent) return;
 
-            toast({title: "Fix applied!", className: "bg-green-500/10 border-green-500/50 text-green-500"});
-            setIsFixItModalOpen(false);
-            setErrorDetails(null);
-            setFixDiff("");
-            setFixedContent("");
-        } catch (e) {
-            toast({ title: "Apply Failed", description: "Could not write fix to file.", variant: "destructive"});
-        }
-    };
+      try {
+          await fs.writeFile(errorDetails.filePath, fixedContent);
+
+          toast({title: "Fix applied!", className: "bg-green-500/10 border-green-500/50 text-green-500"});
+          setIsFixItModalOpen(false);
+          setErrorDetails(null);
+          setFixDiff("");
+          setFixedContent("");
+      } catch (e) {
+          toast({ title: "Apply Failed", description: "Could not write fix to file.", variant: "destructive"});
+      }
+  };
+
+  const handleGenerateCommand = async () => {
+      if (!cmdInput.trim()) return;
+      try {
+          const prompt = `Generate a single line shell command for the following description. Return ONLY the command, no markdown, no explanation.\n\nDescription: ${cmdInput}`;
+          const { content } = await llm.complete(prompt, "");
+          if (content && xtermRef.current) {
+              xtermRef.current.write(content);
+              // Optionally auto-run or just paste
+          }
+          setIsCmdGenOpen(false);
+          setCmdInput("");
+      } catch (e) {
+          toast({ title: "Generation Failed", variant: "destructive" });
+      }
+  };
 
   return (
-    <div className={`h-full w-full bg-[#1e1e1e] flex flex-col overflow-hidden relative`}>
-        <div className="h-8 bg-card/80 border-b border-border flex items-center px-4 text-xs font-mono text-muted-foreground uppercase tracking-wider select-none justify-between">
-            <span>Terminal</span>
-            <div className='flex items-center gap-2'>
-                {errorDetails && (
-                    <Button variant="destructive" size="sm" className="h-6 gap-1.5" onClick={handleProposeFix}>
-                        <Sparkles className="w-3 h-3" />
-                        Fix It
-                    </Button>
+  <div className={`h-full w-full bg-[#1e1e1e] flex flex-col overflow-hidden relative`}>
+      {isCmdGenOpen && (
+          <div className="absolute top-10 left-1/2 -translate-x-1/2 z-30 w-96 bg-card border border-border shadow-2xl rounded-lg p-2 flex gap-2 animate-in fade-in slide-in-from-top-2">
+              <Input 
+                  placeholder="Describe command (e.g. 'list all log files')..." 
+                  value={cmdInput}
+                  onChange={e => setCmdInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGenerateCommand()}
+                  className="h-8 text-xs bg-background/50"
+                  autoFocus
+              />
+              <Button size="sm" className="h-8 text-xs" onClick={handleGenerateCommand}>Generate</Button>
+          </div>
+      )}
+      <div className="h-8 bg-card/80 border-b border-border flex items-center px-4 text-xs font-mono text-muted-foreground uppercase tracking-wider select-none justify-between">
+          <span>Terminal</span>
+          <div className='flex items-center gap-2'>
+              <Button variant="ghost" size="sm" className="h-6 gap-1.5 hover:bg-blue-500/20 hover:text-blue-400 text-blue-400" onClick={() => setIsCmdGenOpen(!isCmdGenOpen)}>
+                  <TerminalIcon className="w-3 h-3" />
+                  AI Cmd
+              </Button>
+              {errorDetails && (
+                    <>
+                        <Button variant="ghost" size="sm" className="h-6 gap-1.5 hover:bg-yellow-500/20 hover:text-yellow-400 text-yellow-400" onClick={handleDebug}>
+                            <Bug className="w-3 h-3" />
+                            Debug
+                        </Button>
+                        <Button variant="destructive" size="sm" className="h-6 gap-1.5" onClick={handleProposeFix}>
+                            <Sparkles className="w-3 h-3" />
+                            Fix It
+                        </Button>
+                    </>
                 )}
             </div>
         </div>
