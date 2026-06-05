@@ -7,6 +7,23 @@ mcp = FastMCP("LocalDev Context Search")
 rag_service = RAGService()
 
 @mcp.tool()
+async def get_codebase_map(root_path: str = ".") -> str:
+    """
+    Returns a high-level map of the codebase, including file paths and key symbols (classes/functions).
+    Useful for understanding the project structure and finding where logic might live.
+    """
+    try:
+        from services.CodebaseMapService import codebase_map_service
+        # Update root if provided
+        if root_path != ".":
+            from services.CodebaseMapService import CodebaseMapService
+            mapper = CodebaseMapService(root_path)
+            return mapper.generate_map()
+        return codebase_map_service.generate_map()
+    except Exception as e:
+        return f"❌ Error generating codebase map: {str(e)}"
+
+@mcp.tool()
 async def context_search(query: str, root_path: str = ".") -> str:
     """
     Search for context based on a query with a special prefix.
