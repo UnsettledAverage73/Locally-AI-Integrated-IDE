@@ -3,8 +3,15 @@ import subprocess
 import psutil
 import requests
 import logging
+import threading
+import time
+from .model_loader import get_ollama_host
 
 logger = logging.getLogger(__name__)
+
+_RESOURCE_CACHE_TTL_SECONDS = 2.0
+_resource_cache_lock = threading.Lock()
+_resource_cache: dict[str, object] = {"timestamp": 0.0, "data": None}
 
 def get_cpu_usage() -> str:
     try:
@@ -59,26 +66,26 @@ def get_gpu_stats():
 def get_ollama_stats():
     status = "offline"
     mode = "N/A"
+    host = get_ollama_host()
+    is_remote = "localhost" not in host and "127.0.0.1" not in host
     
     # Check if online via HTTP
     try:
-        response = requests.get("http://localhost:11434/", timeout=0.5)
+        # Normalize host URL
+        check_url = host if host.endswith("/") else f"{host}/"
+        response = requests.get(check_url, timeout=0.5)
         if response.status_code == 200:
             status = "online"
             # Default to CPU unless we find evidence of GPU
-            mode = "🐌 CPU"
+            mode = "🌐 Remote" if is_remote else "🐌 CPU"
     except requests.exceptions.RequestException:
         return {"status": "offline", "mode": "N/A"}
 
-    # Determine mode via 'ollama ps'
-    if status == "online" and shutil.which("ollama"):
+    # Determine mode via 'ollama ps' only if local
+    if status == "online" and not is_remote and shutil.which("ollama"):
         try:
             # ollama ps lists running models. 
             # We want to see if any model is offloaded to GPU.
-            # Typical output:
-            # NAME    ID    SIZE    PROCESSOR    UNTIL
-            # llama2  ...   ...     100% GPU     ...
-            
             result = subprocess.run(
                 ["ollama", "ps"],
                 capture_output=True,
@@ -88,7 +95,6 @@ def get_ollama_stats():
             if "100% GPU" in result.stdout:
                 mode = "🔥 GPU"
             elif "GPU" in result.stdout:
-                 # Partial offload?
                  mode = "🔥 GPU (Partial)"
             
         except Exception as e:
@@ -97,10 +103,17 @@ def get_ollama_stats():
     return {"status": status, "mode": mode}
 
 def get_system_resources():
+    now = time.monotonic()
+
+    with _resource_cache_lock:
+        cached_at = float(_resource_cache["timestamp"])
+        cached_data = _resource_cache["data"]
+        if cached_data is not None and now - cached_at < _RESOURCE_CACHE_TTL_SECONDS:
+            return cached_data
+
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
-    
-    return {
+    data = {
         "cpu": get_cpu_usage(),
         "ram": get_ram_usage(),
         "gpu": get_gpu_stats(),
@@ -111,3 +124,9 @@ def get_system_resources():
         "disk_total_gb": round(disk.total / (1024**3), 2),
         "disk_free_gb": round(disk.free / (1024**3), 2),
     }
+
+    with _resource_cache_lock:
+        _resource_cache["timestamp"] = now
+        _resource_cache["data"] = data
+
+    return data
