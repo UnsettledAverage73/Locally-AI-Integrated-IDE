@@ -17,16 +17,56 @@ def get_config():
         with open(config_path, "r") as f:
             try:
                 config = json.load(f)
+                hosts = config.get("ollama_hosts", [])
+                if not hosts and "ollama_host" in config:
+                    hosts = [config["ollama_host"]]
+                
                 return {
-                    "host": config.get("ollama_host", default_host),
-                    "active_model": config.get("active_model", default_model)
+                    "host": hosts[0] if hosts else default_host,
+                    "hosts": hosts if hosts else [default_host],
+                    "active_model": config.get("active_model", default_model),
+                    "remote_rag_url": config.get("remote_rag_url", None)
                 }
             except json.JSONDecodeError:
                 pass
-    return {"host": default_host, "active_model": default_model}
+    return {"host": default_host, "hosts": [default_host], "active_model": default_model, "remote_rag_url": None}
 
 def get_ollama_host():
     return get_config()["host"]
+
+def get_ollama_hosts():
+    return get_config()["hosts"]
+
+def get_remote_rag_url():
+    return get_config().get("remote_rag_url")
+
+def get_recommended_model():
+    """
+    Analyzes system resources to recommend the best starting model.
+    """
+    try:
+        import psutil
+        ram_gb = psutil.virtual_memory().total / (1024**3)
+        
+        # Check for GPU
+        from .resource_monitor import get_gpu_stats
+        gpu = get_gpu_stats()
+        
+        if gpu["available"]:
+            # High-end GPU
+            if "RTX" in gpu["name"] or "A100" in gpu["name"] or "H100" in gpu["name"]:
+                return "qwen2.5-coder:7b"
+            # Mid-range GPU
+            return "qwen2.5-coder:3b"
+        
+        # CPU-only machines
+        if ram_gb > 16:
+            return "qwen2.5-coder:1.5b"
+        
+        # Potato PCs
+        return "qwen2.5:0.5b"
+    except:
+        return "qwen2.5:0.5b"
 
 OLLAMA_API_URL = f"{get_ollama_host()}/api"
 REQUIRED_MODELS = ["nomic-embed-text:latest", "qwen2.5:0.5b", "qwen2.5-coder:latest"]
@@ -64,20 +104,20 @@ async def check_host_health(host: str, required_models: list):
 
 async def ensure_nomic_model():
     """
-    Checks if required models exist using parallel host probing.
+    Checks if required models exist using parallel host probing across the pool.
     """
     config = get_config()
-    configured_host = config["host"]
+    hosts_to_try = config["hosts"]
     active_model_name = config["active_model"]
     
-    hosts_to_try = [configured_host]
-    if "localhost" not in configured_host and "127.0.0.1" not in configured_host:
-        hosts_to_try.append("http://localhost:11434")
+    # Always try local as fallback if not in list
+    local_fallback = "http://localhost:11434"
+    if local_fallback not in hosts_to_try:
+        hosts_to_try.append(local_fallback)
 
     all_required = list(set(REQUIRED_MODELS + [active_model_name]))
     
     # Probe all hosts in parallel
-    tasks = [check_host_health(h, all_required) for host in hosts_to_try]
     results = await asyncio.gather(*[check_host_health(h, all_required) for h in hosts_to_try])
     
     # Find the first reachable host
