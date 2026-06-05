@@ -27,7 +27,7 @@ if sys.platform != "win32":
     import select
 
 # --- SERVICES ---
-from services import OllamaService, RAGService
+from services import OllamaService, RAGService, flow_service, codebase_map_service
 from services.resource_monitor import get_system_resources as get_full_system_resources
 from bedrock_service import BedrockService
 from git_service import GitService
@@ -386,6 +386,10 @@ class ProposeFixRequest(BaseModel):
     line_number: int
     error_message: str
 
+class FlowRequest(BaseModel):
+    goal: str
+    context: Optional[str] = None
+
 class RalphRequest(BaseModel):
     model: str | None = None
     max_iterations: int = 10
@@ -650,6 +654,28 @@ async def git_pull():
 
 # --- RALPH ENGINE (AUTONOMOUS LOOP) ---
 ralph_active_tasks = {}
+
+@app.post("/flow/start")
+async def start_flow(request: FlowRequest):
+    flow_id = str(uuid.uuid4())
+    # Generate codebase map as initial context
+    codebase_map = codebase_map_service.generate_map()
+    full_context = f"Codebase Structure:\n{codebase_map}\n\nUser Context: {request.context or ''}"
+    
+    # Run in background
+    asyncio.create_task(flow_service.start_flow(flow_id, request.goal, full_context))
+    return {"flow_id": flow_id, "status": "started"}
+
+@app.get("/flow/status/{flow_id}")
+async def get_flow_status(flow_id: str):
+    status = flow_service.get_flow_status(flow_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Flow not found")
+    return status
+
+@app.get("/codebase/map")
+async def get_codebase_map():
+    return {"map": codebase_map_service.generate_map()}
 
 @app.post("/ralph/start")
 async def start_ralph_loop(request: RalphRequest):
