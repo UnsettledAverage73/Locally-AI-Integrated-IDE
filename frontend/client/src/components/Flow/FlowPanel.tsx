@@ -1,27 +1,74 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Play, Square, ListTodo, Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Play, Square, ListTodo, Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { flow } from '@/api/client';
 
 export default function FlowPanel() {
   const [goal, setGoal] = useState("");
   const [isExecuting, setIsExecuting] = useState(false);
-  const [steps, setSteps] = useState([
-    { id: 1, title: "Initialize Architect", status: "completed" },
-    { id: 2, title: "Plan Project Structure", status: "current" },
-    { id: 3, title: "Generate Core Components", status: "pending" },
-    { id: 4, title: "Verify via Terminal", status: "pending" },
-  ]);
+  const [flowId, setFlowId] = useState<string | null>(null);
+  const [steps, setSteps] = useState<any[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [status, setStatus] = useState<string>("idle");
+  const pollInterval = useRef<NodeJS.Timeout | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const handleStartFlow = () => {
+  const handleStartFlow = async () => {
+    if (!goal.trim()) return;
+    
     setIsExecuting(true);
-    // In real implementation, call flow_service.start_flow
+    setStatus("starting");
+    setSteps([]);
+    setLogs(["Requesting flow start..."]);
+    
+    try {
+      const response = await flow.start(goal);
+      setFlowId(response.flow_id);
+    } catch (error) {
+      console.error("Failed to start flow:", error);
+      setIsExecuting(false);
+      setStatus("error");
+      setLogs(prev => [...prev, "❌ Error starting flow."]);
+    }
   };
 
   const handleStopFlow = () => {
     setIsExecuting(false);
+    setFlowId(null);
+    if (pollInterval.current) clearInterval(pollInterval.current);
   };
+
+  useEffect(() => {
+    if (flowId && isExecuting) {
+      pollInterval.current = setInterval(async () => {
+        try {
+          const data = await flow.status(flowId);
+          setSteps(data.steps || []);
+          setLogs(data.logs || []);
+          setStatus(data.status);
+          
+          if (data.status === 'completed' || data.status === 'error' || data.status === 'timeout') {
+            setIsExecuting(false);
+            if (pollInterval.current) clearInterval(pollInterval.current);
+          }
+        } catch (error) {
+          console.error("Polling error:", error);
+        }
+      }, 2000);
+    }
+    
+    return () => {
+      if (pollInterval.current) clearInterval(pollInterval.current);
+    };
+  }, [flowId, isExecuting]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs]);
 
   return (
     <div className="h-full flex flex-col bg-background/50 backdrop-blur-md">
@@ -56,40 +103,68 @@ export default function FlowPanel() {
           </div>
         </div>
 
-        {isExecuting && (
+        {(isExecuting || status !== 'idle') && (
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-                <div className="space-y-2">
-                    <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-widest">Execution Progress</Label>
+                {steps.length > 0 && (
                     <div className="space-y-2">
-                        {steps.map((step) => (
-                            <div key={step.id} className={cn(
-                                "flex items-center gap-3 p-3 rounded-lg border transition-all",
-                                step.status === 'completed' ? "bg-green-500/5 border-green-500/20 opacity-60" :
-                                step.status === 'current' ? "bg-primary/10 border-primary/30 shadow-[0_0_15px_rgba(var(--primary),0.1)]" :
-                                "bg-card/20 border-border/20 opacity-40"
+                        <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-widest">Execution Progress</Label>
+                        <div className="space-y-2">
+                            {steps.map((step, idx) => (
+                                <div key={step.id || idx} className={cn(
+                                    "flex items-center gap-3 p-3 rounded-lg border transition-all",
+                                    step.status === 'completed' ? "bg-green-500/5 border-green-500/20" :
+                                    "bg-primary/10 border-primary/30 shadow-[0_0_15px_rgba(var(--primary),0.1)]"
+                                )}>
+                                    {step.status === 'completed' ? <CheckCircle2 className="w-4 h-4 text-green-500" /> :
+                                     <Loader2 className="w-4 h-4 text-primary animate-spin" />}
+                                    <span className={cn(
+                                        "text-sm",
+                                        step.status !== 'completed' ? "font-bold text-primary" : "text-foreground opacity-70"
+                                    )}>{step.title}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="space-y-2">
+                    <Label className="text-[10px] uppercase text-muted-foreground font-bold tracking-widest">Agent Logs</Label>
+                    <div 
+                        ref={scrollRef}
+                        className="p-3 bg-black/40 rounded-lg border border-border/30 font-mono text-[10px] h-48 overflow-y-auto space-y-1"
+                    >
+                        {logs.map((log, idx) => (
+                            <div key={idx} className={cn(
+                                log.startsWith('🔧') ? "text-blue-400" :
+                                log.startsWith('✅') || log.startswith('GOAL') ? "text-green-400" :
+                                log.startsWith('❌') ? "text-red-400" :
+                                "text-muted-foreground opacity-80"
                             )}>
-                                {step.status === 'completed' ? <CheckCircle2 className="w-4 h-4 text-green-500" /> :
-                                 step.status === 'current' ? <Loader2 className="w-4 h-4 text-primary animate-spin" /> :
-                                 <div className="w-4 h-4 rounded-full border-2 border-muted" />}
-                                <span className={cn(
-                                    "text-sm",
-                                    step.status === 'current' ? "font-bold text-primary" : "text-foreground"
-                                )}>{step.title}</span>
+                                {log}
                             </div>
                         ))}
+                        {isExecuting && (
+                            <div className="flex items-center gap-2 mt-2">
+                                <Loader2 className="w-2 h-2 animate-spin text-primary" />
+                                <span className="animate-pulse text-primary opacity-70">Agent is thinking...</span>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div className="p-3 bg-black/40 rounded-lg border border-border/30 font-mono text-[10px] space-y-1">
-                    <div className="text-blue-400">$ ls -R src/</div>
-                    <div className="text-muted-foreground opacity-70">components/ utils/ App.tsx</div>
-                    <div className="text-green-400">✓ Detected existing structure.</div>
-                    <div className="text-blue-400">$ touch src/components/ContactForm.tsx</div>
-                    <div className="flex items-center gap-2 mt-2">
-                        <Loader2 className="w-2 h-2 animate-spin" />
-                        <span className="animate-pulse">Writing component code...</span>
+                {status === 'completed' && (
+                    <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-2 text-green-500 text-xs">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Goal successfully achieved!</span>
                     </div>
-                </div>
+                )}
+                
+                {(status === 'error' || status === 'timeout') && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-500 text-xs">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>Flow halted: {status}</span>
+                    </div>
+                )}
             </div>
         )}
       </div>
