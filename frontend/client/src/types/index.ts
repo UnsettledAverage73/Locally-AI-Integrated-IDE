@@ -19,6 +19,7 @@ export interface ToolCall {
 export interface ChatMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
+  images?: string[]; // base64 encoded strings
   tool_calls?: ToolCall[];
   type?: "text" | "permission_request";
 }
