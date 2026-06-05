@@ -1,9 +1,16 @@
 import os
-import ollama
+import asyncio
+from ollama import AsyncClient
+import logging
 from services.fixer_service import fixer_service
 
+logger = logging.getLogger(__name__)
+
 class OptimizerService:
-    def optimize_file(self, file_path: str, instruction: str = "Fix bugs and optimize code", model: str = "qwen2.5:0.5b"):
+    def __init__(self):
+        self.client = AsyncClient(host="http://localhost:11434")
+
+    async def optimize_file(self, file_path: str, instruction: str = "Fix bugs and optimize code", model: str = "qwen2.5:0.5b"):
         # 1. READ the file directly from disk
         if not os.path.exists(file_path):
             return {"error": "File not found"}
@@ -12,9 +19,8 @@ class OptimizerService:
             original_code = f.read()
 
         # 2. CONSTRUCT the strict prompt
-        # We tell the AI strictly: "Do not apologize. Do not talk. Just output code."
         prompt = f"""
-        You are a senior code optimization agent. I have file access.
+        You are a senior code optimization agent.
         
         FILE: {file_path}
         INSTRUCTION: {instruction}
@@ -28,20 +34,24 @@ class OptimizerService:
         IMPORTANT: Output ONLY the full valid code block. No markdown, no explanations.
         """
 
-        # 3. CALL the AI (Use a smart model like qwen2.5:0.5b)
+        # 3. CALL the AI
         try:
-            response = ollama.chat(
+            response = await self.client.chat(
                 model=model, 
                 messages=[{'role': 'user', 'content': prompt}],
-                options={'temperature': 0.1} # Low temp = strict code
+                options={'temperature': 0.1}
             )
             
             optimized_code = response['message']['content']
             
-            # Clean up potential markdown wrapper (```python ... ```)
-            optimized_code = optimized_code.replace("```python", "").replace("```typescript", "").replace("```", "").strip()
+            # Clean up potential markdown wrapper
+            if "```" in optimized_code:
+                lines = optimized_code.split("\n")
+                if lines[0].startswith("```"): lines = lines[1:]
+                if lines and lines[-1].strip().startswith("```"): lines = lines[:-1]
+                optimized_code = "\n".join(lines).strip()
 
-            # 4. WRITE back to disk (The "Fix")
+            # 4. WRITE back to disk
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(optimized_code)
                 
@@ -52,3 +62,63 @@ class OptimizerService:
 
     async def propose_fix(self, file_path: str, line_number: int, error_message: str):
         return await fixer_service.propose_fix(file_path, line_number, error_message)
+
+    async def composer_edit(self, instruction: str, files: list, model: str = "qwen2.5:0.5b"):
+        """
+        Handles multi-file edits by asking the AI to propose changes for each.
+        Returns a list of diffs.
+        """
+        results = []
+        
+        # Helper to process a single file
+        async def process_file(file_path):
+            try:
+                if not os.path.exists(file_path):
+                    return None
+                
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                prompt = f"""
+                Target File: {file_path}
+                Global Goal: {instruction}
+                
+                Existing Content:
+                {content}
+                
+                TASK: Propose the necessary changes for this file to achieve the global goal.
+                IMPORTANT: You MUST return the FULL modified content of the file. Do not use diffs or placeholders.
+                Just the code. No markdown, no talk.
+                """
+                
+                response = await self.client.chat(
+                    model=model,
+                    messages=[{'role': 'user', 'content': prompt}],
+                    options={'temperature': 0.1}
+                )
+                
+                modified_content = response['message']['content']
+                
+                # Clean up markdown
+                if "```" in modified_content:
+                    lines = modified_content.split("\n")
+                    if lines[0].startswith("```"): lines = lines[1:]
+                    if lines and lines[-1].strip().startswith("```"): lines = lines[:-1]
+                    modified_content = "\n".join(lines).strip()
+
+                return {
+                    "path": file_path,
+                    "original": content,
+                    "modified": modified_content
+                }
+            except Exception as e:
+                logger.error(f"Error in composer_edit for {file_path}: {e}")
+                return {"path": file_path, "error": str(e)}
+
+        # Run file edits in parallel for speed
+        tasks = [process_file(f) for f in files]
+        all_results = await asyncio.gather(*tasks)
+        
+        # Filter out None and return
+        return [r for r in all_results if r is not None]
+
