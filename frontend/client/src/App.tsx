@@ -2,13 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid, Globe, Blocks, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Command, Settings, Files, GitBranch, HeartPulse, FolderOpen, Folder, FilePlus, Search, LayoutGrid, Globe, Blocks, ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 
 import FileTree from "@/components/FileExplorer/FileTree";
 import CodeEditor from "@/components/Editor/CodeEditor";
 import Welcome from "@/components/Editor/Welcome";
 import EditorTabs from "@/components/Editor/EditorTabs";
 import ChatPanel from "@/components/AI/ChatPanel";
+import ComposerOverlay from "@/components/AI/ComposerOverlay";
 import TerminalManager from "@/components/Terminal/TerminalManager";
 import SettingsModal from "@/components/Settings/SettingsModal";
 import SearchPanel from "@/components/Search/SearchPanel";
@@ -19,10 +20,11 @@ import BootScreen from "@/components/SystemHealth/BootScreen";
 import BrowserPanel from "@/components/Browser/BrowserPanel";
 import Header from "@/components/Layout/Header";
 import StatusBar from "@/components/Layout/StatusBar";
+import FlowPanel from "@/components/Flow/FlowPanel";
 import { CommandPalette } from "@/components/CommandPalette/CommandPalette";
 
 import { Button } from "@/components/ui/button";
-import { llm, apiClient } from "@/api/client";
+import { llm, apiClient, optimizer } from "@/api/client";
 import { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DownloadProvider } from "@/context/DownloadContext";
@@ -57,10 +59,16 @@ export default function App() {
   useFileWatcher();
 
   const [browserUrl, setBrowserUrl] = useState("https://www.google.com");
+  const [composerChanges, setComposerChanges] = useState<{ path: string; original: string; modified: string }[]>([]);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
   const editorRef = useRef<any>(null);
+  const bootStartedRef = useRef(false);
 
   // Initial Boot
   useEffect(() => {
+    if (bootStartedRef.current) return;
+    bootStartedRef.current = true;
+
     const boot = async (retryCount = 0) => {
       console.log(`🚀 Starting boot process (attempt ${retryCount + 1})...`);
       try {
@@ -103,13 +111,63 @@ export default function App() {
         });
       }
     };
-    boot();
-  }, [rootPath]);
+    void boot();
+  }, []);
 
   // Command handlers
-  const onSendMessage = (content: string) => {
+  const handleCommand = async (command: string, args: string) => {
     const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
-    sendMessage(content, model, currentSessionId);
+    
+    switch (command) {
+      case 'clear':
+        clearChat();
+        break;
+      case 'fix':
+        if (activeFile) {
+            sendMessage(`Fix the current file: ${activeFile}. Focus on any syntax errors or logical bugs.`, model, currentSessionId);
+        } else {
+            toast({ title: "No Active File", description: "Open a file first to use /fix." });
+        }
+        break;
+      case 'explain':
+        if (activeFile) {
+            sendMessage(`Explain the current file: ${activeFile}. Provide a high-level summary of its purpose and logic.`, model, currentSessionId);
+        } else {
+            toast({ title: "No Active File", description: "Open a file first to use /explain." });
+        }
+        break;
+      case 'compose':
+        const filesToProcess = openFiles.length > 0 ? openFiles.map(f => f.path) : (activeFile ? [activeFile] : []);
+        if (filesToProcess.length === 0) {
+            toast({ title: "No Files", description: "Open or select files to use /compose.", variant: "destructive" });
+            return;
+        }
+
+        toast({ title: "Architect Mode", description: "Planning multi-file changes..." });
+        try {
+            const { results } = await optimizer.composerEdit(args || "Improve project architecture", filesToProcess);
+            setComposerChanges(results);
+            setIsComposerOpen(true);
+        } catch (e: any) {
+            toast({ title: "Composer Failed", description: e.message, variant: "destructive" });
+        }
+        break;
+      case 'test':
+        if (activeFile) {
+            sendMessage(`Generate unit tests for ${activeFile}. Use a suitable framework (e.g. pytest for Python, Jest for TS).`, model, currentSessionId);
+        }
+        break;
+      case 'model':
+        setIsSettingsOpen(true);
+        break;
+      default:
+        toast({ title: "Unknown Command", description: `Command /${command} is not yet implemented.` });
+    }
+  };
+
+  const onSendMessage = (content: string, images?: string[]) => {
+    const model = localStorage.getItem("ai_model") || "qwen2.5:0.5b";
+    sendMessage(content, model, currentSessionId, images);
   };
 
   const handleToolAction = async (toolCall: ToolCall, approved: boolean) => {
@@ -184,6 +242,9 @@ export default function App() {
                               <Button variant="ghost" size="icon" onClick={() => handleViewChange('browser')} className={cn("w-8 h-8", activeView === 'browser' && "bg-accent text-accent-foreground")}>
                                   <Globe className="w-4 h-4" />
                               </Button>
+                              <Button variant="ghost" size="icon" onClick={() => handleViewChange('flow')} className={cn("w-8 h-8", activeView === 'flow' && "bg-accent text-accent-foreground")}>
+                                  <Sparkles className="w-4 h-4 text-primary" />
+                              </Button>
                           </div>
 
                           {/* View Content */}
@@ -254,6 +315,7 @@ export default function App() {
                           {activeView === 'git' && <SourceControl />}
                           {activeView === 'system' && <SystemHealth />}
                           {activeView === 'browser' && <BrowserPanel initialUrl={browserUrl} />}
+                          {activeView === 'flow' && <FlowPanel />}
                       </ResizablePanel>
                       <ResizableHandle className="bg-border/50 hover:bg-primary/50 transition-colors" />
                   </>
@@ -335,7 +397,7 @@ export default function App() {
                   <ChatPanel 
                     messages={chatMessages}
                     onSendMessage={onSendMessage}
-                    onCommand={() => {}}
+                    onCommand={handleCommand}
                     onStopGeneration={() => {}}
                     onRemoveContext={() => {}}
                     isLoading={isChatLoading}
@@ -353,6 +415,25 @@ export default function App() {
                     onNewChat={createNewChat}
                     onDeleteSession={deleteSession}
                   />
+                  {isComposerOpen && (
+                      <ComposerOverlay 
+                        isOpen={isComposerOpen}
+                        onClose={() => setIsComposerOpen(false)}
+                        changes={composerChanges}
+                        onApply={(paths) => {
+                            paths.forEach(p => {
+                                const change = composerChanges.find(c => c.path === p);
+                                if (change) {
+                                    // Save the file
+                                    saveFile(p, change.modified);
+                                }
+                            });
+                            setIsComposerOpen(false);
+                            setComposerChanges([]);
+                            toast({ title: "Changes Applied", description: `Updated ${paths.length} files.` });
+                        }}
+                      />
+                  )}
               </ResizablePanel>
 
               </ResizablePanelGroup>
