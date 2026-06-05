@@ -11,6 +11,7 @@ from mcp_server.search import mcp as search_mcp
 from mcp_server.browser import mcp as browser_mcp
 from mcp_server.ollama import mcp as ollama_mcp
 from mcp_server.subagents import mcp as subagents_mcp
+from mcp_server.context_search import mcp as context_search_mcp
 
 class MCPManager:
     async def list_tools(self):
@@ -25,7 +26,8 @@ class MCPManager:
         browser_tools = await browser_mcp.list_tools()
         ollama_tools = await ollama_mcp.list_tools()
         subagent_tools = await subagents_mcp.list_tools()
-        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + ollama_tools + subagent_tools
+        context_tools = await context_search_mcp.list_tools()
+        all_tools = fs_tools + term_tools + gh_tools + search_tools + browser_tools + ollama_tools + subagent_tools + context_tools
         
         tools = []
         for tool in all_tools:
@@ -76,8 +78,13 @@ class MCPManager:
                                 if any(t.name == name for t in search_tools):
                                     result = await search_mcp.call_tool(name, arguments)
                                 else:
-                                    # Fallback to subagents
-                                    result = await subagents_mcp.call_tool(name, arguments)
+                                    # Check context search tools
+                                    context_tools = await context_search_mcp.list_tools()
+                                    if any(t.name == name for t in context_tools):
+                                        result = await context_search_mcp.call_tool(name, arguments)
+                                    else:
+                                        # Fallback to subagents
+                                        result = await subagents_mcp.call_tool(name, arguments)
             
             # Extract text from the result
             output = []
@@ -439,6 +446,18 @@ async def _process_llm_stream(stream, messages):
 async def stream_chat_with_tools(model: str, messages: list, options: dict = None):
     log_debug(f"Starting stream chat with {model}")
     
+    # Process images if present
+    for msg in messages:
+        if "images" in msg and msg["images"]:
+            # Clean up base64 prefix if present
+            cleaned_images = []
+            for img in msg["images"]:
+                if "," in img:
+                    cleaned_images.append(img.split(",")[1])
+                else:
+                    cleaned_images.append(img)
+            msg["images"] = cleaned_images
+
     last_user_msg = messages[-1]['content'].lower()
     creation_keywords = ["create", "make", "generate", "build", "setup", "scaffold", "new", "build it", "make it", "go", "start", "execute"]
     project_keywords = ["project", "app", "game", "file", "folder", "structure", "system", "script", "it", "this"]
